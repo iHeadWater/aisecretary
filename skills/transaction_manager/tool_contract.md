@@ -2,7 +2,11 @@
 
 This contract maps Hermes transaction intents to the current MVP API.
 
-Base URL is environment-specific. Use `http://127.0.0.1:8000` for local development unless configured otherwise.
+The base URL is environment-specific. For the Mac mini runtime, when Hermes and the API run on the same machine, use:
+
+```text
+http://127.0.0.1:8000
+```
 
 ## Data Shape
 
@@ -24,10 +28,10 @@ Transaction response:
 
 Status values:
 
-- `new`: new transaction
-- `in_progress`: active work
-- `waiting_feedback`: waiting for someone else
-- `done`: completed
+- `new`: 新建
+- `in_progress`: 进行中
+- `waiting_feedback`: 等待反馈
+- `done`: 已完成
 
 ## Create Transaction
 
@@ -59,7 +63,9 @@ Rules:
 - If follow-up time is understandable, convert it to an ISO-8601 datetime before sending.
 - If follow-up time is not understandable, send `null` or omit the field.
 
-Success response: `201` with a Transaction response.
+Success response: `201` with a transaction response.
+
+Missing or invalid required fields return validation errors from FastAPI/Pydantic, usually HTTP `422`.
 
 ## List Transactions
 
@@ -69,7 +75,7 @@ Use when the user asks what transactions exist, what is currently being tracked,
 GET /transactions
 ```
 
-Success response: `200` with an array of Transaction responses. Empty list is `[]`.
+Success response: `200` with an array of transaction responses. Empty list is `[]`.
 
 ## Get Transaction
 
@@ -79,7 +85,7 @@ Use when the user asks about a known transaction by ID.
 GET /transactions/{id}
 ```
 
-Success response: `200` with a Transaction response.
+Success response: `200` with a transaction response.
 
 Not found response:
 
@@ -125,7 +131,7 @@ Rules:
   - 等待反馈 -> `waiting_feedback`
   - 已完成 -> `done`
 
-Success response: `200` with the updated Transaction response.
+Success response: `200` with the updated transaction response.
 
 Empty update response:
 
@@ -158,4 +164,3 @@ Success response:
 ```
 
 `by_status` only contains statuses currently present in the database.
-

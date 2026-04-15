@@ -2,12 +2,40 @@
 
 Minimal FastAPI + SQLite transaction API for a Hermes capability layer.
 
-## Run locally
+The intended deployment flow is:
+
+1. Develop and verify on Windows.
+2. Commit and push changes to git.
+3. Pull the repository on the Mac mini.
+4. Run the local API on the Mac mini.
+5. Let Hermes on the Mac mini load the skill/prompt and call the local API.
+
+## Windows Development / Verification
+
+From the repository root on Windows:
+
+```powershell
+uv sync
+uv run pytest
+```
+
+Optional local API run for development checks:
+
+```powershell
+uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+The Windows run is for development verification only. Do not assume Hermes is running on Windows.
+
+## Mac Mini Runtime / Hermes Wiring
+
+On the Mac mini, pull the repository and start the API:
 
 ```bash
-cp .env.example .env
+cd ~/code/aisecretary
+git pull
 uv sync
-uv run uvicorn server.app.main:app --reload
+uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 The local API base URL is:
@@ -15,6 +43,24 @@ The local API base URL is:
 ```text
 http://127.0.0.1:8000
 ```
+
+Configure Hermes on the Mac mini to use that base URL, then load or copy these relative-path wiring files into the Hermes-side skill/prompt configuration:
+
+```text
+skills/transaction_manager/SKILL.md
+skills/transaction_manager/tool_contract.md
+prompts/task_secretary_rules.md
+```
+
+Example macOS paths if the repository is checked out under `~/code/aisecretary`:
+
+```text
+~/code/aisecretary/skills/transaction_manager/SKILL.md
+~/code/aisecretary/skills/transaction_manager/tool_contract.md
+~/code/aisecretary/prompts/task_secretary_rules.md
+```
+
+Keep API keys, Feishu tokens, and local Hermes config out of git.
 
 ## Manual API Verification
 
@@ -64,22 +110,6 @@ curl http://127.0.0.1:8000/transactions
 
 Expected result: `200 OK` with an array. It is `[]` when no transactions exist.
 
-```json
-[
-  {
-    "id": "generated-id",
-    "title": "Partnership follow-up",
-    "status": "new",
-    "next_action": "Confirm next meeting time",
-    "owner": "Owen",
-    "suggested_follow_up_at": null,
-    "created_at": "ISO-8601 datetime",
-    "updated_at": "ISO-8601 datetime",
-    "notes": null
-  }
-]
-```
-
 ### GET /transactions/{id}
 
 Replace `generated-id` with the ID returned by `POST /transactions`.
@@ -113,20 +143,6 @@ curl -X PATCH http://127.0.0.1:8000/transactions/generated-id \
 
 Expected result: `200 OK` with the updated transaction object.
 
-```json
-{
-  "id": "generated-id",
-  "title": "Partnership follow-up",
-  "status": "waiting_feedback",
-  "next_action": "Wait for partner feedback",
-  "owner": "Owen",
-  "suggested_follow_up_at": null,
-  "created_at": "ISO-8601 datetime",
-  "updated_at": "ISO-8601 datetime",
-  "notes": null
-}
-```
-
 ### GET /transactions/summary
 
 ```bash
@@ -144,38 +160,32 @@ Expected result: `200 OK` with minimal summary data.
 }
 ```
 
-## Natural Language Mapping Examples
+## Hermes Natural Language Smoke Test
 
-These examples prepare the next Hermes wiring step. They match `skills/transaction_manager/tool_contract.md` and `prompts/task_secretary_rules.md`.
-
-### Create Transaction
-
-User:
+After the API is running on the Mac mini and Hermes has loaded the skill/prompt, send this in Feishu:
 
 ```text
 记录一个事务：和清华团队推进合作，负责人 Owen，下一步确认下次会议时间。
 ```
 
-Hermes should extract:
+Hermes should call:
+
+```http
+POST /transactions
+```
+
+With a body equivalent to:
 
 ```json
 {
   "title": "和清华团队推进合作",
   "status": "new",
   "owner": "Owen",
-  "next_action": "确认下次会议时间",
-  "suggested_follow_up_at": null,
-  "notes": null
+  "next_action": "确认下次会议时间"
 }
 ```
 
-API call:
-
-```http
-POST /transactions
-```
-
-Expected reply after success:
+Expected Feishu reply after API success:
 
 ```text
 已记录事务：
@@ -187,122 +197,26 @@ ID：{id}
 建议跟进：未设置
 ```
 
-### Update Transaction
-
-User:
-
-```text
-把 ID 为 {id} 的事务改成等待反馈，下一步是等对方确认会议时间。
-```
-
-Hermes should extract:
-
-```json
-{
-  "status": "waiting_feedback",
-  "next_action": "等对方确认会议时间"
-}
-```
-
-API call:
-
-```http
-PATCH /transactions/{id}
-```
-
-Expected reply after success:
-
-```text
-已更新事务：
-ID：{id}
-状态：等待反馈
-下一步：等对方确认会议时间
-```
-
-### Query Transaction List
-
-User:
+Then verify the remaining MVP intents:
 
 ```text
 现在有哪些事务？
 ```
 
-Hermes should extract:
-
-```json
-{}
-```
-
-API call:
-
-```http
-GET /transactions
-```
-
-Expected reply after success:
-
 ```text
-当前事务：
-1. {title}
-   ID：{id}
-   状态：{中文状态}
-   负责人：{owner}
-   下一步：{next_action 或 未设置}
-   建议跟进：{suggested_follow_up_at 或 未设置}
+把 ID 为 {id} 的事务改成等待反馈，下一步是等对方确认会议时间。
 ```
-
-If the API returns `[]`:
-
-```text
-当前没有已记录的事务。
-```
-
-### Summarize Transactions
-
-User:
 
 ```text
 汇总当前事务。
 ```
 
-Hermes should extract:
-
-```json
-{}
-```
-
-API call:
+Hermes should map those to:
 
 ```http
+GET /transactions
+PATCH /transactions/{id}
 GET /transactions/summary
 ```
 
-Expected reply after success:
-
-```text
-事务汇总：
-总数：{total}
-新建：{by_status.new 或 0}
-进行中：{by_status.in_progress 或 0}
-等待反馈：{by_status.waiting_feedback 或 0}
-已完成：{by_status.done 或 0}
-```
-
-Do not mention overdue or upcoming counts in the MVP response.
-
-## Hermes Wiring Preparation
-
-Before wiring Hermes:
-
-1. Start this API service locally.
-2. Manually verify the API commands above.
-3. Confirm `skills/transaction_manager/tool_contract.md` matches the live API behavior.
-4. Load or copy `prompts/task_secretary_rules.md` into the Hermes-side prompt configuration.
-5. Configure Hermes with the API base URL, for example `http://127.0.0.1:8000`.
-6. Keep API keys, Feishu tokens, and local Hermes config out of git.
-
-## Test
-
-```bash
-uv run pytest
-```
+Do not add board, reminder, authentication, multi-user, or automation-framework behavior to this MVP wiring.

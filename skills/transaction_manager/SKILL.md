@@ -7,13 +7,13 @@ description: Minimal Hermes skill contract for recording, querying, updating, an
 
 Use this skill when the user asks Hermes to manage transactions, affairs, follow-ups, collaborations, reports, coordination items, or similar work items.
 
-This skill is only a thin contract over the local FastAPI service. Do not modify Hermes source code. Do not store transaction state in the chat. Do not invent saved records without a successful API response.
+This skill is a thin contract over the local FastAPI service. Do not modify Hermes source code. Do not store transaction state in the chat. Do not invent saved records without a successful API response.
 
 API contract: see `tool_contract.md`.
 
 ## Base URL
 
-Use the configured transaction API base URL. For local development:
+Use the configured transaction API base URL. For the Mac mini runtime, when Hermes and the API run on the same machine:
 
 ```text
 http://127.0.0.1:8000
@@ -25,15 +25,15 @@ http://127.0.0.1:8000
 
 Trigger examples:
 
-- "记录一个事务..."
-- "新增一个跟进事项..."
-- "帮我记一下和 X 的合作..."
+- "记录一个事务：和清华团队推进合作，负责人 Owen，下一步确认下次会议时间。"
+- "新增一个跟进事项：明天问 Alice 合同状态。"
+- "帮我记一下和 X 的合作，下周三提醒我继续推进。"
 - "Track this item..."
 
 Action:
 
 1. Extract `title`.
-2. Extract optional `owner`, `next_action`, `suggested_follow_up_at`, `notes`.
+2. Extract optional `owner`, `next_action`, `suggested_follow_up_at`, and `notes`.
 3. Default `status` to `new`.
 4. If `title` is missing, ask for the title before calling the API.
 5. Call `POST /transactions`.
@@ -57,9 +57,9 @@ Action:
 
 Trigger examples:
 
-- "把这个事务改成等待反馈。"
+- "把 ID 为 X 的事务改成等待反馈。"
 - "把 ID 为 X 的事项标记为完成。"
-- "更新 X 的下一步为..."
+- "更新 X 的下一步为等对方确认会议时间。"
 
 Action:
 
@@ -95,4 +95,3 @@ Action:
   - `waiting_feedback`: 等待反馈
   - `done`: 已完成
 - If the API returns a structured error, use `detail.code` to decide the user-facing explanation.
-
