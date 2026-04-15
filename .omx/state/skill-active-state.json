@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "active": false,
+  "skill": "plan",
+  "keyword": "$plan",
+  "phase": "completing",
+  "activated_at": "2026-04-15T11:12:45.384Z",
+  "updated_at": "2026-04-15T12:19:51.664Z",
+  "source": "keyword-detector",
+  "input_lock": null
+}
