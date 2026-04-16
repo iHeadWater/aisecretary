@@ -220,3 +220,40 @@ GET /transactions/summary
 ```
 
 Do not add board, reminder, authentication, multi-user, or automation-framework behavior to this MVP wiring.
+
+## Mac Quick Setup
+
+### New Mac (first time)
+
+Prerequisites: Hermes installed and initialised, Feishu configured.
+
+```bash
+git clone <repo-url> ~/code/aisecretary
+cd ~/code/aisecretary
+bash scripts/bootstrap_hermes.sh
+bash scripts/start_local_api.sh   # runs in foreground; open a new terminal for other work
+```
+
+### Update Existing Mac
+
+After pulling new changes:
+
+```bash
+cd ~/code/aisecretary
+git pull
+bash scripts/bootstrap_hermes.sh   # idempotent — safe to re-run
+```
+
+Restart the API if it was already running:
+
+```bash
+bash scripts/start_local_api.sh
+```
+
+### Verify Wiring
+
+```bash
+bash scripts/verify_hermes_wiring.sh
+```
+
+Expected output: 4 passed, 0 failed. If any check fails, the script prints the fix command.
