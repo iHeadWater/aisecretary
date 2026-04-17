@@ -1,35 +1,35 @@
-# Hermes Transaction Layer
+# Hermes 事务管理接口层
 
-Minimal FastAPI + SQLite transaction API for a Hermes capability layer.
+轻量级 FastAPI + SQLite 事务 API，为 Hermes 助手提供事务管理能力。
 
-The intended deployment flow is:
+## 部署流程
 
-1. Develop and verify on Windows.
-2. Commit and push changes to git.
-3. Pull the repository on the Mac mini.
-4. Run the local API on the Mac mini.
-5. Let Hermes on the Mac mini load the skill/prompt and call the local API.
+1. 在 Windows 上开发调试
+2. 提交并推送到 Git
+3. 在 Mac mini 上拉取代码
+4. 在 Mac mini 上启动本地 API
+5. 让 Mac mini 上的 Hermes 加载 skill/prompt 并调用本地 API
 
-## Windows Development / Verification
+## Windows 开发 / 验证
 
-From the repository root on Windows:
+在 Windows 仓库根目录执行：
 
 ```powershell
 uv sync
 uv run pytest
 ```
 
-Optional local API run for development checks:
+可选：启动本地 API 进行开发调试：
 
 ```powershell
 uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The Windows run is for development verification only. Do not assume Hermes is running on Windows.
+注意：Windows 开发仅用于验证，Hermes 并非运行在 Windows 上。
 
-## Mac Mini Runtime / Hermes Wiring
+## Mac mini 运行环境 / Hermes 接线
 
-On the Mac mini, pull the repository and start the API:
+在 Mac mini 上拉取仓库并启动 API：
 
 ```bash
 cd ~/code/aisecretary
@@ -38,118 +38,93 @@ uv sync
 uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The local API base URL is:
+本地 API 基础地址：
 
-```text
+```
 http://127.0.0.1:8000
 ```
 
-Configure Hermes on the Mac mini to use that base URL, then load or copy these relative-path wiring files into the Hermes-side skill/prompt configuration:
+在 Mac mini 上配置 Hermes 使用上述基础地址，然后将以下接线文件复制到 Hermes 的 skill/prompt 配置中：
 
-```text
+```
 skills/transaction_manager/SKILL.md
 skills/transaction_manager/tool_contract.md
 prompts/task_secretary_rules.md
 ```
 
-Example macOS paths if the repository is checked out under `~/code/aisecretary`:
+示例 macOS 路径（假设仓库克隆到 `~/code/aisecretary`）：
 
-```text
+```
 ~/code/aisecretary/skills/transaction_manager/SKILL.md
 ~/code/aisecretary/skills/transaction_manager/tool_contract.md
 ~/code/aisecretary/prompts/task_secretary_rules.md
 ```
 
-Keep API keys, Feishu tokens, and local Hermes config out of git.
+注意：API 密钥、Feishu 令牌等敏感配置请勿提交到 Git。
 
-## Manual API Verification
+## API 手动验证
 
-Run these commands after the service starts.
+服务启动后运行以下命令进行验证。
 
-### GET /health
+### 健康检查
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Expected result:
+预期返回：
 
 ```json
 {"status":"ok"}
 ```
 
-### POST /transactions
+### 创建事务
 
 ```bash
 curl -X POST http://127.0.0.1:8000/transactions \
   -H "Content-Type: application/json" \
-  -d '{"title":"Partnership follow-up","owner":"Owen","next_action":"Confirm next meeting time"}'
+  -d '{"title":"合作伙伴跟进","owner":"Owen","next_action":"确认下次会议时间"}'
 ```
 
-Expected result: `201 Created` with a transaction object. Save the returned `id` for later commands.
+预期返回：`201 Created`，返回的事务对象中包含 `id`，请保存该 ID 供后续使用。
 
-```json
-{
-  "id": "generated-id",
-  "title": "Partnership follow-up",
-  "status": "new",
-  "next_action": "Confirm next meeting time",
-  "owner": "Owen",
-  "suggested_follow_up_at": null,
-  "created_at": "ISO-8601 datetime",
-  "updated_at": "ISO-8601 datetime",
-  "notes": null
-}
-```
-
-### GET /transactions
+### 查询事务列表
 
 ```bash
 curl http://127.0.0.1:8000/transactions
 ```
 
-Expected result: `200 OK` with an array. It is `[]` when no transactions exist.
+预期返回：`200 OK`，返回数组。无事务时为 `[]`。
 
-### GET /transactions/{id}
+### 获取单个事务
 
-Replace `generated-id` with the ID returned by `POST /transactions`.
+将 `generated-id` 替换为创建事务时返回的 ID：
 
 ```bash
 curl http://127.0.0.1:8000/transactions/generated-id
 ```
 
-Expected result: `200 OK` with one transaction object.
+预期返回：`200 OK`，返回事务对象。
 
-If the ID does not exist:
+### 更新事务
 
-```json
-{
-  "detail": {
-    "code": "transaction_not_found",
-    "message": "Transaction not found"
-  }
-}
-```
-
-### PATCH /transactions/{id}
-
-Replace `generated-id` with the ID returned by `POST /transactions`.
+将 `generated-id` 替换为要更新的事务 ID：
 
 ```bash
 curl -X PATCH http://127.0.0.1:8000/transactions/generated-id \
   -H "Content-Type: application/json" \
-  -d '{"status":"waiting_feedback","next_action":"Wait for partner feedback"}'
+  -d '{"status":"waiting_feedback","next_action":"等待对方确认会议时间"}'
 ```
 
-Expected result: `200 OK` with the updated transaction object.
+预期返回：`200 OK`，返回更新后的事务对象。
 
-### GET /transactions/summary
+### 汇总事务
 
 ```bash
 curl http://127.0.0.1:8000/transactions/summary
 ```
 
-Expected result: `200 OK` with minimal summary data.
+预期返回：`200 OK`，返回汇总数据：
 
 ```json
 {
@@ -160,21 +135,21 @@ Expected result: `200 OK` with minimal summary data.
 }
 ```
 
-## Hermes Natural Language Smoke Test
+## Hermes 自然语言测试
 
-After the API is running on the Mac mini and Hermes has loaded the skill/prompt, send this in Feishu:
+API 在 Mac mini 上运行且 Hermes 已加载 skill/prompt 后，在飞书中发送：
 
-```text
+```
 记录一个事务：和清华团队推进合作，负责人 Owen，下一步确认下次会议时间。
 ```
 
-Hermes should call:
+Hermes 应调用：
 
-```http
+```
 POST /transactions
 ```
 
-With a body equivalent to:
+请求体大致如下：
 
 ```json
 {
@@ -185,9 +160,9 @@ With a body equivalent to:
 }
 ```
 
-Expected Feishu reply after API success:
+API 成功后飞书回复：
 
-```text
+```
 已记录事务：
 ID：{id}
 事务：和清华团队推进合作
@@ -197,63 +172,108 @@ ID：{id}
 建议跟进：未设置
 ```
 
-Then verify the remaining MVP intents:
+继续验证其余意图：
 
-```text
+```
 现在有哪些事务？
 ```
 
-```text
+```
 把 ID 为 {id} 的事务改成等待反馈，下一步是等对方确认会议时间。
 ```
 
-```text
+```
 汇总当前事务。
 ```
 
-Hermes should map those to:
+Hermes 应分别映射到：
 
-```http
+```
 GET /transactions
 PATCH /transactions/{id}
 GET /transactions/summary
 ```
 
-Do not add board, reminder, authentication, multi-user, or automation-framework behavior to this MVP wiring.
+## Mac 快速配置
 
-## Mac Quick Setup
+### 首次配置（全新 Mac）
 
-### New Mac (first time)
-
-Prerequisites: Hermes installed and initialised, Feishu configured.
+前置条件：Hermes 已安装并初始化，Feishu 已配置。
 
 ```bash
-git clone <repo-url> ~/code/aisecretary
+git clone <仓库地址> ~/code/aisecretary
 cd ~/code/aisecretary
 bash scripts/bootstrap_hermes.sh
-bash scripts/start_local_api.sh   # runs in foreground; open a new terminal for other work
+bash scripts/start_local_api.sh   # 前台运行，需打开新终端
 ```
 
-### Update Existing Mac
+### 更新现有配置
 
-After pulling new changes:
+拉取新版本后：
 
 ```bash
 cd ~/code/aisecretary
 git pull
-bash scripts/bootstrap_hermes.sh   # idempotent — safe to re-run
+bash scripts/bootstrap_hermes.sh   # 幂等操作，可安全重复执行
 ```
 
-Restart the API if it was already running:
+如 API 已在运行，需重启：
 
 ```bash
 bash scripts/start_local_api.sh
 ```
 
-### Verify Wiring
+### 验证接线
 
 ```bash
 bash scripts/verify_hermes_wiring.sh
 ```
 
-Expected output: 4 passed, 0 failed. If any check fails, the script prints the fix command.
+预期输出：4 passed, 0 failed。若有失败，脚本会输出修复命令。
+
+## Windows (WSL2) 快速配置
+
+> 注意：Hermes 不支持原生 Windows，需在 WSL2 中运行。
+
+### 首次配置（全新 WSL2）
+
+前置条件：WSL2 已安装，Ubuntu 或其他 Linux 发行版已就绪。
+
+```bash
+# 1. 进入 WSL 终端
+wsl
+
+# 2. 克隆仓库
+# 如果 WSL2 的 Git SSH 未配置，可从 Windows 本地克隆后复制到 WSL：
+#   git clone <仓库地址> 
+#   cp -r /mnt/e/code/aisecretary ~/code/aisecretary
+# 或者重新配置 WSL2 的 Git SSH
+git clone <仓库地址> ~/code/aisecretary
+cd ~/code/aisecretary
+
+# 3. 转换脚本换行符（Windows 仓库默认 CRLF）
+sed -i 's/\r$//' scripts/*.sh
+
+# 4. 启动 API
+bash scripts/start_local_api.sh   # 前台运行，需打开新终端
+```
+
+### 更新现有配置
+
+拉取新版本后：
+
+```bash
+cd ~/code/aisecretary
+git pull
+
+# 重新转换脚本换行符（如果 Windows 端有更新）
+sed -i 's/\r$//' scripts/*.sh
+
+# 重启 API
+bash scripts/start_local_api.sh
+```
+
+### 注意事项
+
+1. **换行符问题**：从 Windows Git 拉取的脚本文件换行符为 CRLF (`\r\n`)，需要转换为 LF (`\n`) 才能在 WSL2 中运行
+2. **Hermes 安装**：如需在 WSL2 中运行完整 Hermes，参考官方文档执行安装命令
