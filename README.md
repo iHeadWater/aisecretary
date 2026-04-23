@@ -34,19 +34,18 @@ uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```bash
 cd ~/code/aisecretary
 git pull
-uv sync
-uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000
+bash scripts/start_local_api.sh
 ```
 
 本地 API 基础地址：
 
-```
-http://127.0.0.1:8000
+```ini
+http://host.docker.internal:8000
 ```
 
-在 Mac mini 上配置 Hermes 使用上述基础地址，然后将以下接线文件复制到 Hermes 的 skill/prompt 配置中：
+Hermes 运行在 Docker 容器中，通过 `host.docker.internal:8000` 访问宿主机 API。接线文件：
 
-```
+```sh
 skills/transaction_manager/SKILL.md
 skills/transaction_manager/tool_contract.md
 prompts/task_secretary_rules.md
@@ -54,7 +53,7 @@ prompts/task_secretary_rules.md
 
 示例 macOS 路径（假设仓库克隆到 `~/code/aisecretary`）：
 
-```
+```sh
 ~/code/aisecretary/skills/transaction_manager/SKILL.md
 ~/code/aisecretary/skills/transaction_manager/tool_contract.md
 ~/code/aisecretary/prompts/task_secretary_rules.md
@@ -139,13 +138,13 @@ curl http://127.0.0.1:8000/transactions/summary
 
 API 在 Mac mini 上运行且 Hermes 已加载 skill/prompt 后，在飞书中发送：
 
-```
+```ini
 记录一个事务：和清华团队推进合作，负责人 Owen，下一步确认下次会议时间。
 ```
 
 Hermes 应调用：
 
-```
+```sh
 POST /transactions
 ```
 
@@ -162,7 +161,7 @@ POST /transactions
 
 API 成功后飞书回复：
 
-```
+```ini
 已记录事务：
 ID：{id}
 事务：和清华团队推进合作
@@ -174,21 +173,21 @@ ID：{id}
 
 继续验证其余意图：
 
-```
+```text
 现在有哪些事务？
 ```
 
-```
+```ini
 把 ID 为 {id} 的事务改成等待反馈，下一步是等对方确认会议时间。
 ```
 
-```
+```text
 汇总当前事务。
 ```
 
 Hermes 应分别映射到：
 
-```
+```sh
 GET /transactions
 PATCH /transactions/{id}
 GET /transactions/summary

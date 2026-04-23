@@ -1,6 +1,6 @@
 ---
-name: transaction_manager
 description: Minimal Hermes skill contract for recording, querying, updating, and summarizing transactions through the local transaction API.
+name: transaction_manager
 ---
 
 # Transaction Manager
@@ -13,10 +13,10 @@ API contract: see `tool_contract.md`.
 
 ## Base URL
 
-Use the configured transaction API base URL. For the Mac mini runtime, when Hermes and the API run on the same machine:
+Use the configured transaction API base URL. Hermes runs inside Docker; the API runs on the host machine:
 
 ```text
-http://127.0.0.1:8000
+http://host.docker.internal:8000
 ```
 
 ## Supported Intents
@@ -90,8 +90,9 @@ Action:
 - Keep Feishu replies concise.
 - Always include the transaction ID when reporting a created or updated transaction.
 - Use the API status values internally, but present Chinese labels to the user when helpful:
-  - `new`: 新建
-  - `in_progress`: 进行中
-  - `waiting_feedback`: 等待反馈
-  - `done`: 已完成
+   - `new`: 新建
+   - `in_progress`: 进行中
+   - `waiting_feedback`: 等待反馈
+   - `done`: 已完成
+
 - If the API returns a structured error, use `detail.code` to decide the user-facing explanation.
