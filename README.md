@@ -4,6 +4,8 @@
 
 ## 架构
 
+![系统架构图](docs/architecture.png)
+
 ```
 飞书 → Hermes（Docker 容器）→ http://host.docker.internal:8000 → FastAPI（宿主机）→ SQLite
 ```
