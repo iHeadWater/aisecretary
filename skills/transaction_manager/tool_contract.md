@@ -1,24 +1,33 @@
 # Transaction Manager Tool Contract
 
-This contract maps Hermes transaction intents to the current MVP API.
+Hermes calls `aisecretary_cli.py` on the host machine via SSH. All commands are run as:
 
-The base URL is environment-specific. For the Mac mini runtime, when Hermes and the API run on the same machine, use:
-
-```text
-http://127.0.0.1:8000
+```bash
+ssh aisecretary-host "aisecretary <subcommand> [args]"
 ```
+
+`aisecretary-host` is an SSH alias configured in `~/.ssh/config` inside the Hermes container (see `scripts/setup_ssh_access.sh`).
+
+## Windows SSH 注意事项
+
+- **编码**：SSH 输出已强制 UTF-8（`chcp 65001`），直接按 UTF-8 解析即可。
+- **引号**：Windows cmd.exe 不识别单引号，字符串参数必须用双引号。内层双引号用 `\"` 转义：
+  ```bash
+  ssh aisecretary-host "aisecretary create --title \"标题\" --owner \"Owen\""
+  ```
+  不要用单引号包裹参数值，否则单引号会被原样存入数据库。
 
 ## Data Shape
 
-Transaction response:
+All commands output JSON. A transaction looks like:
 
 ```json
 {
-  "id": "string",
+  "id": "string (UUID)",
   "title": "string",
   "status": "new | in_progress | waiting_feedback | done",
   "next_action": "string or null",
-  "owner": "string",
+  "owner": "string (default: unassigned)",
   "suggested_follow_up_at": "ISO-8601 datetime string or null",
   "created_at": "ISO-8601 datetime string",
   "updated_at": "ISO-8601 datetime string",
@@ -33,128 +42,89 @@ Status values:
 - `waiting_feedback`: 等待反馈
 - `done`: 已完成
 
+Errors output `{"error": "<code>", "message": "..."}` and exit with code 1.
+
 ## Create Transaction
 
-Use when the user clearly asks Hermes to record, create, add, remember, or track a transaction.
+Use when the user asks to record, create, add, remember, or track a transaction.
 
-```http
-POST /transactions
-Content-Type: application/json
-```
-
-Body:
-
-```json
-{
-  "title": "string, required",
-  "status": "new",
-  "next_action": "string or null",
-  "owner": "string, defaults to unassigned",
-  "suggested_follow_up_at": "ISO-8601 datetime string or null",
-  "notes": "string or null"
-}
+```bash
+ssh aisecretary-host "aisecretary create \
+  --title '<title>' \
+  [--status 'new|in_progress|waiting_feedback|done'] \
+  [--owner '<owner>'] \
+  [--next-action '<next_action>'] \
+  [--follow-up '<ISO-8601 datetime>'] \
+  [--notes '<notes>']"
 ```
 
 Rules:
 
-- If `title` is missing, ask the user for it before calling the API.
-- If `status` is missing, send `new`.
-- If `owner` is missing, omit it and let the API use `unassigned`.
-- If follow-up time is understandable, convert it to an ISO-8601 datetime before sending.
-- If follow-up time is not understandable, send `null` or omit the field.
-
-Success response: `201` with a transaction response.
-
-Missing or invalid required fields return validation errors from FastAPI/Pydantic, usually HTTP `422`.
+- `--title` is required. If missing, ask before calling.
+- `--status` defaults to `new` if omitted.
+- `--owner` defaults to `unassigned` if omitted.
+- Convert natural-language follow-up times to ISO-8601 before passing to `--follow-up`.
+- Output on success: the created transaction JSON.
 
 ## List Transactions
 
-Use when the user asks what transactions exist, what is currently being tracked, or asks for the current list.
+Use when the user asks what transactions exist or asks for the current list.
 
-```http
-GET /transactions
+```bash
+ssh aisecretary-host "aisecretary list"
 ```
 
-Success response: `200` with an array of transaction responses. Empty list is `[]`.
+Output: JSON array of transactions ordered by `updated_at` DESC. Empty list is `[]`.
 
 ## Get Transaction
 
-Use when the user asks about a known transaction by ID.
+Use when the user asks about a specific transaction by ID.
 
-```http
-GET /transactions/{id}
+```bash
+ssh aisecretary-host "aisecretary get '<id>'"
 ```
 
-Success response: `200` with a transaction response.
-
-Not found response:
-
-```json
-{
-  "detail": {
-    "code": "transaction_not_found",
-    "message": "Transaction not found"
-  }
-}
-```
+Error code on missing record: `transaction_not_found`.
 
 ## Update Transaction
 
 Use when the user asks to change a known transaction.
 
-```http
-PATCH /transactions/{id}
-Content-Type: application/json
-```
-
-Body contains only fields to change:
-
-```json
-{
-  "title": "string",
-  "status": "new | in_progress | waiting_feedback | done",
-  "next_action": "string or null",
-  "owner": "string or null",
-  "suggested_follow_up_at": "ISO-8601 datetime string or null",
-  "notes": "string or null"
-}
+```bash
+ssh aisecretary-host "aisecretary update '<id>' \
+  [--title '<title>'] \
+  [--status 'new|in_progress|waiting_feedback|done'] \
+  [--owner '<owner>'] \
+  [--next-action '<next_action>'] \
+  [--follow-up '<ISO-8601 datetime>'] \
+  [--notes '<notes>']"
 ```
 
 Rules:
 
-- Do not send an empty body.
-- If the user did not provide an ID, ask a follow-up question or list transactions to help identify the target.
-- Only include fields the user actually wants to change.
-- Map natural-language status to the enum exactly:
-  - 新建 -> `new`
-  - 进行中 -> `in_progress`
-  - 等待反馈 -> `waiting_feedback`
-  - 已完成 -> `done`
+- Pass only fields the user wants to change.
+- To clear a nullable field, pass an empty string: `--next-action ''`.
+- Do not call with no optional flags (error code: `no_fields_to_update`).
+- If no ID is provided, ask or call `list` first to disambiguate.
 
-Success response: `200` with the updated transaction response.
+Status mapping:
 
-Empty update response:
+- 新建 → `new`
+- 进行中 → `in_progress`
+- 等待反馈 → `waiting_feedback`
+- 已完成 → `done`
 
-```json
-{
-  "detail": {
-    "code": "no_fields_to_update",
-    "message": "At least one transaction field is required"
-  }
-}
-```
-
-Not found response uses `transaction_not_found`.
+Error codes: `transaction_not_found`, `no_fields_to_update`, `invalid_status`.
 
 ## Summarize Transactions
 
-Use when the user asks for a summary, overview, count, or current transaction status.
+Use when the user asks for a summary, overview, or count.
 
-```http
-GET /transactions/summary
+```bash
+ssh aisecretary-host "aisecretary summary"
 ```
 
-Success response:
+Output:
 
 ```json
 {

@@ -7,17 +7,19 @@ name: transaction_manager
 
 Use this skill when the user asks Hermes to manage transactions, affairs, follow-ups, collaborations, reports, coordination items, or similar work items.
 
-This skill is a thin contract over the local FastAPI service. Do not modify Hermes source code. Do not store transaction state in the chat. Do not invent saved records without a successful API response.
+This skill calls `aisecretary_cli.py` on the host machine via SSH. Do not modify Hermes source code. Do not store transaction state in the chat. Do not invent saved records without a successful CLI response.
 
-API contract: see `tool_contract.md`.
+CLI contract: see `tool_contract.md`.
 
-## Base URL
+## SSH Alias
 
-Use the configured transaction API base URL. Hermes runs inside Docker; the API runs on the host machine:
+Hermes runs inside Docker; the CLI runs on the host machine via:
 
-```text
-http://host.docker.internal:8000
+```bash
+ssh aisecretary-host "aisecretary ..."
 ```
+
+`aisecretary-host` must be configured in `~/.ssh/config` inside the container (run `scripts/setup_ssh_access.sh` on the host to set this up).
 
 ## Supported Intents
 
