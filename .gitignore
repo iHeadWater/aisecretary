@@ -10,4 +10,5 @@ data/*.sqlite3
 data/*.db
 backups/
 logs/
+.codegraph/
 
