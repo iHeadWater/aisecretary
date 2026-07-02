@@ -5,9 +5,8 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 CONFIG_YAML="$HERMES_HOME/config.yaml"
 SOUL_MD="$HERMES_HOME/SOUL.md"
 HERMES_AGENT="$HERMES_HOME/hermes-agent"
-SKILLS_ENTRY="~/code/aisecretary/skills"
+SKILLS_DEST="$HERMES_HOME/skills/transaction_manager"
 BLOCK_MARKER="Transaction Secretary Rules (aisecretary)"
-API_URL="http://127.0.0.1:8000"
 
 PASS=0
 FAIL=0
@@ -22,11 +21,11 @@ echo "║         aisecretary → Hermes wiring check            ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-echo "── Check 1: skills.external_dirs ──────────────────────"
-if grep -qF "$SKILLS_ENTRY" "$CONFIG_YAML" 2>/dev/null; then
-    pass "external_dirs contains '$SKILLS_ENTRY'"
+echo "── Check 1: skill files in ~/.hermes/skills/ ──────────"
+if [ -f "$SKILLS_DEST/SKILL.md" ] && [ -f "$SKILLS_DEST/tool_contract.md" ]; then
+    pass "skill files present at $SKILLS_DEST"
 else
-    fail "external_dirs missing '$SKILLS_ENTRY' in $CONFIG_YAML"
+    fail "skill files missing at $SKILLS_DEST"
     info "Fix: run scripts/bootstrap_hermes.sh"
 fi
 
@@ -40,19 +39,18 @@ else
 fi
 
 echo ""
-echo "── Check 3: local API health ──────────────────────────"
-if curl -sf "$API_URL/health" -o /dev/null 2>/dev/null; then
-    STATUS=$(curl -sf "$API_URL/health" 2>/dev/null)
-    pass "API is up: $STATUS"
+echo "── Check 3: SSH → CLI reachable ───────────────────────"
+if docker exec hermes bash -c "ssh aisecretary-host 'aisecretary summary'" >/dev/null 2>&1; then
+    pass "SSH+CLI reachable (aisecretary summary succeeded)"
 else
-    fail "API not reachable at $API_URL/health"
-    info "Fix: run scripts/start_local_api.sh"
+    fail "SSH+CLI not reachable"
+    info "Fix: run scripts/setup_ssh_access.sh"
 fi
 
 echo ""
 echo "── Check 4: transaction_manager skill recognised ──────"
 if [ -d "$HERMES_AGENT" ] && [ -f "$HERMES_AGENT/tools/skills_tool.py" ]; then
-    RESULT=$(cd "$HERMES_AGENT" && PYTHONPATH=. venv/bin/python3 - 2>/dev/null <<'PYEOF'
+    RESULT=$(cd "$HERMES_AGENT" && PYTHONPATH=. venv/bin/python - 2>/dev/null <<'PYEOF'
 from tools.skills_tool import _find_all_skills
 skills = _find_all_skills()
 found = [s for s in skills if s.get("name") == "transaction_manager"]
