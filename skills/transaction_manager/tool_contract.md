@@ -116,6 +116,32 @@ Status mapping:
 
 Error codes: `transaction_not_found`, `no_fields_to_update`, `invalid_status`.
 
+## Delete Transaction
+
+Use when the user asks to delete or remove a transaction by ID.
+
+```http
+DELETE /transactions/{id}
+```
+
+Success response: `204 No Content` (empty body).
+
+Not found response:
+
+```json
+{
+  "detail": {
+    "code": "transaction_not_found",
+    "message": "Transaction not found"
+  }
+}
+```
+
+Rules:
+
+- Do not call this without a confirmed ID.
+- Always confirm with the user before deleting, since the operation is irreversible.
+
 ## Summarize Transactions
 
 Use when the user asks for a summary, overview, or count.

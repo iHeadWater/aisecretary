@@ -1,6 +1,6 @@
 ---
-description: Minimal Hermes skill contract for recording, querying, updating, and summarizing transactions through the local transaction API.
 name: transaction_manager
+description: Minimal Hermes skill contract for recording, querying, updating, deleting, and summarizing transactions through the local transaction CLI.
 ---
 
 # Transaction Manager
@@ -71,6 +71,22 @@ Action:
 4. Do not call the API with an empty update.
 5. Call `PATCH /transactions/{id}`.
 6. If the API returns `transaction_not_found`, tell the user the transaction was not found and ask whether to list current transactions.
+
+### Delete Transaction
+
+Trigger examples:
+
+- "删除 ID 为 X 的事务。"
+- "把 ID 为 X 的事项删掉。"
+- "Remove transaction X."
+
+Action:
+
+1. Identify the transaction ID.
+2. If there is no ID, ask which transaction to delete or call `GET /transactions` to help disambiguate.
+3. Confirm with the user before calling the API, since deletion is irreversible.
+4. Call `DELETE /transactions/{id}`.
+5. If the API returns `transaction_not_found`, tell the user the transaction was not found.
 
 ### Summarize Transactions
 

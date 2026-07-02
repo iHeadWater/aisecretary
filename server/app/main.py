@@ -13,6 +13,7 @@ from server.app.schemas import (
 )
 from server.app.storage import (
     create_transaction,
+    delete_transaction,
     get_transaction,
     list_transactions,
     summarize_transactions,
@@ -85,6 +86,21 @@ def get_transaction_endpoint(
             ),
         )
     return transaction
+
+
+@app.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_transaction_endpoint(
+    transaction_id: str,
+    connection: Connection = Depends(get_db),
+) -> None:
+    if not delete_transaction(connection, transaction_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error_detail(
+                "transaction_not_found",
+                "Transaction not found",
+            ),
+        )
 
 
 @app.patch("/transactions/{transaction_id}", response_model=Transaction)

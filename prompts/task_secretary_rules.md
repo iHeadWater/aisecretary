@@ -70,7 +70,20 @@ Status mapping:
 - 等待反馈 → `waiting_feedback`
 - 已完成 → `done`
 
-### 4. Summarize Transactions
+### 4. Delete Transaction
+
+Use when the user asks to delete, remove, or discard a transaction.
+
+Behavior:
+
+- Prefer an explicit transaction ID.
+- If no ID is provided, ask which transaction to delete, or list current transactions if that helps disambiguate.
+- Always confirm with the user before calling the API, since deletion is irreversible.
+- Call `DELETE /transactions/{id}`.
+- If `detail.code` is `transaction_not_found`, explain that the transaction was not found.
+- After success (HTTP 204), confirm to the user that the transaction has been deleted.
+
+### 5. Summarize Transactions
 
 Use when the user asks for an overview, summary, count, or status distribution.
 

@@ -96,6 +96,15 @@ def get_transaction(connection: sqlite3.Connection, transaction_id: str) -> dict
     return _parse_row(row) if row else None
 
 
+def delete_transaction(connection: sqlite3.Connection, transaction_id: str) -> bool:
+    cursor = connection.execute(
+        "DELETE FROM transactions WHERE id = ?",
+        (transaction_id,),
+    )
+    connection.commit()
+    return cursor.rowcount > 0
+
+
 def update_transaction(
     connection: sqlite3.Connection,
     transaction_id: str,
