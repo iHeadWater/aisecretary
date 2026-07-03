@@ -1,29 +1,33 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-CLI for Hermes to manage transactions via SSH on the host machine.
+aisecretary CLI — thin HTTP client like `gh`.
+
+All commands call the aisecretary REST API. Default base URL:
+  http://localhost:8000/api
+
+Override with AISECRETARY_URL environment variable:
+  export AISECRETARY_URL=http://aisecretary:8000/api
 
 Usage:
-  python3 aisecretary_cli.py create --title "..." [--owner "..."] [--next-action "..."] [--status new] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
-  python3 aisecretary_cli.py list [--project "..."]
-  python3 aisecretary_cli.py get <id>
-  python3 aisecretary_cli.py update <id> [--title "..."] [--status "..."] [--owner "..."] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
-  python3 aisecretary_cli.py summary
+  aisecretary create --title "..." [--owner "..."] [--status new] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
+  aisecretary list [--status "..."] [--owner "..."] [--search "..."] [--project "..."]
+  aisecretary get <id>
+  aisecretary update <id> [--title "..."] [--status "..."] [--owner "..."] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
+  aisecretary delete <id>
+  aisecretary summary
 
 Output is always JSON. Errors print {"error": "<code>"} to stdout and exit 1.
-DATABASE_PATH env var overrides the default db location.
 """
 
 import argparse
 import json
 import os
-import sqlite3
 import sys
-import uuid
-from datetime import datetime, timezone
+import urllib.error
+import urllib.parse
+import urllib.request
 
-DB_PATH = os.path.expanduser(
-    os.environ.get("DATABASE_PATH", "~/.myagentdata/aisecretary/transactions.sqlite")
-)
+BASE_URL = os.environ.get("AISECRETARY_URL", "http://localhost:8000/api")
 
 VALID_STATUSES = {"new", "in_progress", "waiting_feedback", "done"}
 
@@ -35,51 +39,6 @@ def unquote(s):
     return s
 
 
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
-
-
-def get_conn():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS transactions (
-            id                   TEXT PRIMARY KEY,
-            title                TEXT NOT NULL,
-            status               TEXT NOT NULL DEFAULT 'new',
-            next_action          TEXT,
-            owner                TEXT NOT NULL DEFAULT 'unassigned',
-            suggested_follow_up_at TEXT,
-            created_at           TEXT NOT NULL,
-            updated_at           TEXT NOT NULL,
-            notes                TEXT
-        )
-    """)
-    _sync_columns(conn)
-    conn.commit()
-    return conn
-
-
-# 期望补齐的列：列名 -> DDL。与 server/app/database.py 保持一致。
-EXPECTED_COLUMNS = {
-    "project": "TEXT",
-    "folder_path": "TEXT",
-}
-
-
-def _sync_columns(conn):
-    """给已存在的老表补齐缺失的列（幂等）。ADD COLUMN 不支持 IF NOT EXISTS，先查再加。"""
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(transactions)")}
-    for name, ddl in EXPECTED_COLUMNS.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE transactions ADD COLUMN {name} {ddl}")
-
-
-def row_dict(row):
-    return dict(row)
-
-
 def err(code, message=None):
     out = {"error": code}
     if message:
@@ -88,100 +47,106 @@ def err(code, message=None):
     sys.exit(1)
 
 
+def _request(method, path, body=None):
+    url = f"{BASE_URL}{path}"
+    data = json.dumps(body).encode("utf-8") if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            if resp.status == 204:
+                return {"deleted": True}
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = json.loads(e.read().decode("utf-8"))
+        if isinstance(detail, dict) and "detail" in detail:
+            inner = detail["detail"]
+            if isinstance(inner, dict) and "code" in inner:
+                err(inner["code"], inner.get("message"))
+            if isinstance(inner, list):
+                err("validation_error", str(inner))
+        err("http_error", str(e))
+    except urllib.error.URLError as e:
+        err("connection_error", f"Cannot reach aisecretary at {BASE_URL}: {e.reason}")
+
+
 def cmd_create(args):
     if args.status and args.status not in VALID_STATUSES:
         err("invalid_status", f"status must be one of: {', '.join(VALID_STATUSES)}")
-    conn = get_conn()
-    tx_id = str(uuid.uuid4())
-    now = now_iso()
-    conn.execute(
-        "INSERT INTO transactions (id, title, status, next_action, owner, suggested_follow_up_at, created_at, updated_at, notes, project, folder_path) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            tx_id,
-            args.title,
-            args.status or "new",
-            args.next_action,
-            args.owner or "unassigned",
-            args.follow_up,
-            now,
-            now,
-            args.notes,
-            args.project,
-            args.folder_path,
-        ),
-    )
-    conn.commit()
-    row = conn.execute("SELECT * FROM transactions WHERE id=?", (tx_id,)).fetchone()
-    print(json.dumps(row_dict(row), ensure_ascii=False))
+    body = {
+        "title": args.title,
+        "status": args.status or "new",
+        "owner": args.owner or "unassigned",
+    }
+    if args.next_action:
+        body["next_action"] = args.next_action
+    if args.follow_up:
+        body["suggested_follow_up_at"] = args.follow_up
+    if args.notes:
+        body["notes"] = args.notes
+    if args.project:
+        body["project"] = args.project
+    if args.folder_path:
+        body["folder_path"] = args.folder_path
+    result = _request("POST", "/transactions", body)
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def cmd_list(args):
-    conn = get_conn()
-    if getattr(args, "project", None):
-        rows = conn.execute(
-            "SELECT * FROM transactions WHERE project=? ORDER BY updated_at DESC",
-            (args.project,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM transactions ORDER BY updated_at DESC"
-        ).fetchall()
-    print(json.dumps([row_dict(r) for r in rows], ensure_ascii=False))
+    params = {}
+    if args.status:
+        params["status"] = args.status
+    if args.owner:
+        params["owner"] = args.owner
+    if args.search:
+        params["search"] = args.search
+    if args.project:
+        params["project"] = args.project
+    qs = urllib.parse.urlencode(params) if params else ""
+    path = f"/transactions?{qs}" if qs else "/transactions"
+    result = _request("GET", path)
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def cmd_get(args):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM transactions WHERE id=?", (args.id,)).fetchone()
-    if not row:
-        err("transaction_not_found")
-    print(json.dumps(row_dict(row), ensure_ascii=False))
+    result = _request("GET", f"/transactions/{args.id}")
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def cmd_update(args):
     if args.status is not None and args.status not in VALID_STATUSES:
         err("invalid_status", f"status must be one of: {', '.join(VALID_STATUSES)}")
-    conn = get_conn()
-    if not conn.execute("SELECT 1 FROM transactions WHERE id=?", (args.id,)).fetchone():
-        err("transaction_not_found")
-    fields = {}
+    body = {}
     if args.title is not None:
-        fields["title"] = args.title
+        body["title"] = args.title
     if args.status is not None:
-        fields["status"] = args.status
+        body["status"] = args.status
     if args.next_action is not None:
-        fields["next_action"] = args.next_action or None
+        body["next_action"] = args.next_action or None
     if args.owner is not None:
-        fields["owner"] = args.owner
+        body["owner"] = args.owner
     if args.follow_up is not None:
-        fields["suggested_follow_up_at"] = args.follow_up or None
+        body["suggested_follow_up_at"] = args.follow_up
     if args.notes is not None:
-        fields["notes"] = args.notes or None
+        body["notes"] = args.notes
     if args.project is not None:
-        fields["project"] = args.project or None
+        body["project"] = args.project
     if args.folder_path is not None:
-        fields["folder_path"] = args.folder_path or None
-    if not fields:
+        body["folder_path"] = args.folder_path
+    if not body:
         err("no_fields_to_update")
-    fields["updated_at"] = now_iso()
-    set_clause = ", ".join(f"{k}=?" for k in fields)
-    conn.execute(
-        f"UPDATE transactions SET {set_clause} WHERE id=?",
-        list(fields.values()) + [args.id],
-    )
-    conn.commit()
-    row = conn.execute("SELECT * FROM transactions WHERE id=?", (args.id,)).fetchone()
-    print(json.dumps(row_dict(row), ensure_ascii=False))
+    result = _request("PATCH", f"/transactions/{args.id}", body)
+    print(json.dumps(result, ensure_ascii=False))
 
 
-def cmd_summary(args):
-    conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
-    rows = conn.execute(
-        "SELECT status, COUNT(*) as cnt FROM transactions GROUP BY status"
-    ).fetchall()
-    by_status = {r["status"]: r["cnt"] for r in rows}
-    print(json.dumps({"total": total, "by_status": by_status}, ensure_ascii=False))
+def cmd_delete(args):
+    result = _request("DELETE", f"/transactions/{args.id}")
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def cmd_summary(_):
+    result = _request("GET", "/transactions/summary")
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def main():
@@ -200,6 +165,9 @@ def main():
     p.set_defaults(func=cmd_create)
 
     p = sub.add_parser("list")
+    p.add_argument("--status", type=unquote)
+    p.add_argument("--owner", type=unquote)
+    p.add_argument("--search", type=unquote)
     p.add_argument("--project", type=unquote)
     p.set_defaults(func=cmd_list)
 
@@ -218,6 +186,10 @@ def main():
     p.add_argument("--project", type=unquote)
     p.add_argument("--folder-path", dest="folder_path", type=unquote)
     p.set_defaults(func=cmd_update)
+
+    p = sub.add_parser("delete")
+    p.add_argument("id", type=unquote)
+    p.set_defaults(func=cmd_delete)
 
     p = sub.add_parser("summary")
     p.set_defaults(func=cmd_summary)

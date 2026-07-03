@@ -63,19 +63,57 @@ def create_transaction(
 
 
 def list_transactions(
-    connection: sqlite3.Connection, project: str | None = None
+    connection: sqlite3.Connection,
+    status: str | None = None,
+    owner: str | None = None,
+    search: str | None = None,
+    project: str | None = None,
 ) -> list[dict]:
-    query = """
+    """List transactions with optional filters.
+
+    Args:
+        status: Comma-separated status values to include (e.g. "new,in_progress").
+        owner: Filter by owner name (partial match).
+        search: Search title and notes (case-insensitive partial match).
+        project: Filter by exact project name.
+    """
+    conditions = []
+    params: list[str] = []
+
+    if status:
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            conditions.append(f"status IN ({placeholders})")
+            params.extend(statuses)
+
+    if owner:
+        conditions.append("owner LIKE ?")
+        params.append(f"%{owner}%")
+
+    if search:
+        conditions.append("(title LIKE ? OR notes LIKE ?)")
+        params.append(f"%{search}%")
+        params.append(f"%{search}%")
+
+    if project is not None:
+        conditions.append("project = ?")
+        params.append(project)
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+
+    rows = connection.execute(
+        f"""
         SELECT id, title, status, next_action, owner, suggested_follow_up_at,
                created_at, updated_at, notes, project, folder_path
         FROM transactions
-    """
-    params: tuple = ()
-    if project is not None:
-        query += " WHERE project = ?"
-        params = (project,)
-    query += " ORDER BY updated_at DESC"
-    rows = connection.execute(query, params).fetchall()
+        {where}
+        ORDER BY updated_at DESC
+        """,
+        params,
+    ).fetchall()
     return [_parse_row(row) for row in rows]
 
 
