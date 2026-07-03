@@ -8,7 +8,7 @@
 #   1. Verifies ~/.hermes/config.yaml exists
 #   2. Registers ~/code/aisecretary/skills in skills.external_dirs (if not already present)
 #   3. Backs up ~/.hermes/SOUL.md → SOUL.md.bak (only on first run)
-#   4. Appends task_secretary_rules.md to SOUL.md under a labelled block (if not already present)
+#   4. Injects task_secretary_rules.md into SOUL.md under a labelled block, refreshing it if already present
 #
 # Requirements: bash, python3 (macOS system python is sufficient), sed, grep
 
@@ -93,18 +93,25 @@ if [ ! -f "$PROMPT_FILE" ]; then
 fi
 
 if grep -qF "$BLOCK_MARKER" "$SOUL_MD" 2>/dev/null; then
-    skip "Block '$BLOCK_MARKER' already present in SOUL.md"
+    # Remove the previously-injected block (its heading → EOF; the block is
+    # always appended last) so the current prompt content replaces it.
+    sed -i "/^## $BLOCK_MARKER/,\$d" "$SOUL_MD"
+    # Trim trailing blank lines so spacing stays stable across re-runs.
+    sed -i -e :a -e '/^[[:space:]]*$/{$d;N;ba}' "$SOUL_MD"
+    action="Refreshed"
 else
-    {
-        printf '\n'
-        printf '## %s\n' "$BLOCK_MARKER"
-        printf '\n'
-        # Skip the first-line "# Task Secretary Rules" heading to avoid duplication
-        # (the block marker above already acts as section heading)
-        tail -n +2 "$PROMPT_FILE"
-    } >> "$SOUL_MD"
-    ok "Appended '$BLOCK_MARKER' block to SOUL.md"
+    action="Appended"
 fi
+
+{
+    printf '\n'
+    printf '## %s\n' "$BLOCK_MARKER"
+    printf '\n'
+    # Skip the first-line "# Task Secretary Rules" heading to avoid duplication
+    # (the block marker above already acts as section heading)
+    tail -n +2 "$PROMPT_FILE"
+} >> "$SOUL_MD"
+ok "$action '$BLOCK_MARKER' block in SOUL.md"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
