@@ -1,118 +1,123 @@
 # aisecretary
 
-为 Hermes 助手提供事务管理能力的本地 API 服务。Hermes 通过自然语言接收事务指令，调用本服务的 REST API 完成增删查改，数据持久化到本机 SQLite。
+Transaction database service for Hermes AI agent. MCP tools for CRUD + summary + batch update, Docker-packaged with persistent SQLite storage.
 
-## 架构
-
-![系统架构图](docs/architecture.png)
+## Architecture
 
 ```
-飞书 → Hermes（Docker 容器）→ http://host.docker.internal:8000 → FastAPI（宿主机）→ SQLite
+┌─ myopenclaw docker-compose ───────────────────────┐
+│                                                    │
+│  Hermes ──MCP/HTTP──► aisecretary:8000             │
+│                       ├─ 7 MCP tools (self-desc)   │
+│                       ├─ REST API /api/*            │
+│                       └─ GET /health                │
+│                          │                         │
+│                     volume: SQLite (persistent)     │
+└────────────────────────────────────────────────────┘
 ```
 
-- API 服务运行在宿主机，绑定 `0.0.0.0:8000`
-- Hermes 运行在 Docker 容器内，通过 `host.docker.internal:8000` 访问宿主机
-- 数据库默认存放在 `~/data/aisecretary/transactions.sqlite`（repo 外，由 myopenclaw 统一备份）
+- **MCP Streamable HTTP**: Hermes auto-discovers 7 tools via `http://aisecretary:8000/mcp`
+- **REST API**: Thin CLI (`aisecretary`) calls `/api/*` like `gh` calls GitHub API
+- **/health**: Docker healthcheck + myopenclaw monitoring
+- **Data**: SQLite file at `~/.myagentdata/aisecretary/transactions.sqlite`, volume-mounted into `/data/`
 
-## 快速开始（新 Mac）
-
-前置条件：Hermes 已通过 [myopenclaw](https://github.com/OuyangWenyu/myopenclaw) 启动，飞书已配置。
+## Quick Start
 
 ```bash
-git clone <仓库地址> ~/code/aisecretary
-cd ~/code/aisecretary
-bash scripts/bootstrap_hermes.sh   # 注册 skill、注入 SOUL.md
-bash scripts/start_local_api.sh    # 前台启动 API（新开终端运行）
-bash scripts/verify_hermes_wiring.sh  # 验证接线
+# Build and start
+docker compose up -d
+
+# Verify
+curl http://localhost:8000/health
+# → {"status":"ok"}
+
+# CLI (optional — for host-side debugging)
+python3 scripts/aisecretary_cli.py list
+python3 scripts/aisecretary_cli.py list --status "new,in_progress,waiting_feedback"
+python3 scripts/aisecretary_cli.py create --title "测试事务" --owner "Owen" --project "myproject"
+python3 scripts/aisecretary_cli.py summary
 ```
 
-## 日常操作
+## Environment Variables
 
-### 更新代码后
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATABASE_PATH` | `/data/transactions.sqlite` | SQLite file path (inside container) |
+| `AISECRETARY_URL` | `http://localhost:8000/api` | API base URL (for CLI) |
+
+## MCP Tools
+
+Hermes connects to `http://aisecretary:8000/mcp` (Streamable HTTP transport) and discovers:
+
+| Tool | Description |
+|------|-------------|
+| `create_transaction` | Create a new work item (supports project/folder_path) |
+| `list_transactions` | List items with optional filters: status, owner, search, project |
+| `get_transaction` | Get one item by ID |
+| `update_transaction` | Change fields of an existing item |
+| `delete_transaction` | Permanently remove an item |
+| `batch_update_transactions` | Update multiple items in one call |
+| `summarize_transactions` | Count by status |
+
+### Filter Examples
+
+```
+list_transactions(status="new,in_progress,waiting_feedback")  # 未完成事务
+list_transactions(owner="Owen")                                 # 按负责人
+list_transactions(search="关键词")                               # 搜索标题和备注
+list_transactions(project="myproject")                          # 按项目
+```
+
+See `skills/transaction_manager/SKILL.md` for Hermes usage patterns and trigger examples.
+
+## REST API
+
+For CLI and direct HTTP access:
 
 ```bash
-cd ~/code/aisecretary
-git pull
-bash scripts/bootstrap_hermes.sh   # 幂等，可安全重复执行
-# 如需重启 API：
-bash scripts/start_local_api.sh
+# List with filters
+GET /api/transactions?status=new,in_progress&owner=Owen&project=myloop&search=keyword
+
+# Batch update
+PATCH /api/transactions/batch
+[{"id": "xxx", "status": "done"}, {"id": "yyy", "owner": "Owen"}]
 ```
 
-### 验证接线
+Full endpoint reference in `server/app/api.py`.
+
+## Data & Backup
+
+Database: `~/.myagentdata/aisecretary/transactions.sqlite` (mounted into container at `/data/`).
+
+Migration: new columns (`project`, `folder_path`) are added idempotently via `PRAGMA table_info` on startup — no manual migration needed. Existing data is never modified.
+
+Backup managed by [myopenclaw](https://github.com/OuyangWenyu/myopenclaw) `backup-cron` container. This repo does not manage backups.
+
+## Development
 
 ```bash
-bash scripts/verify_hermes_wiring.sh
-```
-
-预期输出：`3 passed, 0 failed`
-
-## 数据库与备份
-
-数据库默认路径：`~/data/aisecretary/transactions.sqlite`
-
-可通过 `.env` 文件自定义（参考 `.env.example`）。
-
-备份由 [myopenclaw](https://github.com/OuyangWenyu/myopenclaw) 的 `backup-cron` 容器统一管理，与 Hermes、OpenClaw 数据快照一起定时备份到云盘。本仓库不负责备份。
-
-## API 手动验证
-
-服务启动后在宿主机终端执行：
-
-### 健康检查
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-预期返回：`{"status":"ok"}`
-
-### 创建事务
-
-```bash
-curl -X POST http://127.0.0.1:8000/transactions \
-  -H "Content-Type: application/json" \
-  -d '{"title":"合作伙伴跟进","owner":"Owen","next_action":"确认下次会议时间"}'
-```
-
-预期返回：`201 Created`，含 `id` 字段。
-
-### 查询事务列表
-
-```bash
-curl http://127.0.0.1:8000/transactions
-```
-
-### 更新事务
-
-```bash
-curl -X PATCH http://127.0.0.1:8000/transactions/<id> \
-  -H "Content-Type: application/json" \
-  -d '{"status":"waiting_feedback","next_action":"等待对方确认会议时间"}'
-```
-
-### 汇总事务
-
-```bash
-curl http://127.0.0.1:8000/transactions/summary
-```
-
-## 飞书自然语言测试
-
-API 运行且 Hermes 已加载 skill 后，在飞书发送：
-
-```
-记录一个事务：和合作团队推进合作，负责人 Owen，下一步确认下次会议时间。
-现在有哪些事务？
-把 ID 为 <id> 的事务改成等待反馈。
-汇总当前事务。
-```
-
-Hermes 应分别映射到 `POST /transactions`、`GET /transactions`、`PATCH /transactions/{id}`、`GET /transactions/summary`。
-
-## 开发
-
-```bash
+# Install
 uv sync
-uv run pytest
+uv pip install mcp
+
+# Run locally (without Docker)
 uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Test
+uv run pytest server/tests/ -v
 ```
+
+## Project Files
+
+| Path | Purpose |
+|------|---------|
+| `server/app/main.py` | FastAPI app: MCP mount + REST router + /health |
+| `server/app/mcp_server.py` | 7 MCP tool definitions |
+| `server/app/api.py` | REST /api/* endpoints (for CLI) |
+| `server/app/storage.py` | Business logic — all tools call this |
+| `server/app/database.py` | SQLite connection + idempotent schema migration |
+| `server/app/schemas.py` | Pydantic models |
+| `scripts/aisecretary_cli.py` | Thin HTTP client CLI |
+| `skills/transaction_manager/SKILL.md` | Hermes skill contract |
+| `Dockerfile` | Python 3.12-slim image |
+| `docker-compose.yml` | Volume mount + healthcheck |

@@ -12,3 +12,6 @@ backups/
 logs/
 .codegraph/
 
+# Local-only Claude Code guidance; do not publish
+CLAUDE.md
+

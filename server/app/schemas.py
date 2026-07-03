@@ -12,6 +12,8 @@ class TransactionCreate(BaseModel):
     owner: str = "unassigned"
     suggested_follow_up_at: datetime | None = None
     notes: str | None = None
+    project: str | None = None
+    folder_path: str | None = None
 
 
 class TransactionUpdate(BaseModel):
@@ -21,6 +23,8 @@ class TransactionUpdate(BaseModel):
     owner: str | None = None
     suggested_follow_up_at: datetime | None = None
     notes: str | None = None
+    project: str | None = None
+    folder_path: str | None = None
 
 
 class Transaction(BaseModel):
@@ -33,6 +37,8 @@ class Transaction(BaseModel):
     created_at: datetime
     updated_at: datetime
     notes: str | None
+    project: str | None
+    folder_path: str | None
 
     model_config = ConfigDict(from_attributes=True)
 
