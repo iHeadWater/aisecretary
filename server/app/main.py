@@ -60,8 +60,11 @@ def create_transaction_endpoint(
 
 
 @app.get("/transactions", response_model=list[Transaction])
-def list_transactions_endpoint(connection: Connection = Depends(get_db)) -> list[dict]:
-    return list_transactions(connection)
+def list_transactions_endpoint(
+    project: str | None = None,
+    connection: Connection = Depends(get_db),
+) -> list[dict]:
+    return list_transactions(connection, project=project)
 
 
 @app.get("/transactions/summary", response_model=TransactionSummary)

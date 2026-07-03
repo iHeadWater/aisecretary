@@ -3,10 +3,10 @@
 CLI for Hermes to manage transactions via SSH on the host machine.
 
 Usage:
-  python3 aisecretary_cli.py create --title "..." [--owner "..."] [--next-action "..."] [--status new] [--follow-up "ISO-8601"] [--notes "..."]
-  python3 aisecretary_cli.py list
+  python3 aisecretary_cli.py create --title "..." [--owner "..."] [--next-action "..."] [--status new] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
+  python3 aisecretary_cli.py list [--project "..."]
   python3 aisecretary_cli.py get <id>
-  python3 aisecretary_cli.py update <id> [--title "..."] [--status "..."] [--owner "..."] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."]
+  python3 aisecretary_cli.py update <id> [--title "..."] [--status "..."] [--owner "..."] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
   python3 aisecretary_cli.py summary
 
 Output is always JSON. Errors print {"error": "<code>"} to stdout and exit 1.
@@ -56,8 +56,24 @@ def get_conn():
             notes                TEXT
         )
     """)
+    _sync_columns(conn)
     conn.commit()
     return conn
+
+
+# 期望补齐的列：列名 -> DDL。与 server/app/database.py 保持一致。
+EXPECTED_COLUMNS = {
+    "project": "TEXT",
+    "folder_path": "TEXT",
+}
+
+
+def _sync_columns(conn):
+    """给已存在的老表补齐缺失的列（幂等）。ADD COLUMN 不支持 IF NOT EXISTS，先查再加。"""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(transactions)")}
+    for name, ddl in EXPECTED_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE transactions ADD COLUMN {name} {ddl}")
 
 
 def row_dict(row):
@@ -79,8 +95,8 @@ def cmd_create(args):
     tx_id = str(uuid.uuid4())
     now = now_iso()
     conn.execute(
-        "INSERT INTO transactions (id, title, status, next_action, owner, suggested_follow_up_at, created_at, updated_at, notes) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO transactions (id, title, status, next_action, owner, suggested_follow_up_at, created_at, updated_at, notes, project, folder_path) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (
             tx_id,
             args.title,
@@ -91,6 +107,8 @@ def cmd_create(args):
             now,
             now,
             args.notes,
+            args.project,
+            args.folder_path,
         ),
     )
     conn.commit()
@@ -100,7 +118,15 @@ def cmd_create(args):
 
 def cmd_list(args):
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM transactions ORDER BY updated_at DESC").fetchall()
+    if getattr(args, "project", None):
+        rows = conn.execute(
+            "SELECT * FROM transactions WHERE project=? ORDER BY updated_at DESC",
+            (args.project,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM transactions ORDER BY updated_at DESC"
+        ).fetchall()
     print(json.dumps([row_dict(r) for r in rows], ensure_ascii=False))
 
 
@@ -131,6 +157,10 @@ def cmd_update(args):
         fields["suggested_follow_up_at"] = args.follow_up or None
     if args.notes is not None:
         fields["notes"] = args.notes or None
+    if args.project is not None:
+        fields["project"] = args.project or None
+    if args.folder_path is not None:
+        fields["folder_path"] = args.folder_path or None
     if not fields:
         err("no_fields_to_update")
     fields["updated_at"] = now_iso()
@@ -165,9 +195,12 @@ def main():
     p.add_argument("--next-action", dest="next_action", type=unquote)
     p.add_argument("--follow-up", dest="follow_up", type=unquote)
     p.add_argument("--notes", type=unquote)
+    p.add_argument("--project", type=unquote)
+    p.add_argument("--folder-path", dest="folder_path", type=unquote)
     p.set_defaults(func=cmd_create)
 
     p = sub.add_parser("list")
+    p.add_argument("--project", type=unquote)
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("get")
@@ -182,6 +215,8 @@ def main():
     p.add_argument("--next-action", dest="next_action", type=unquote)
     p.add_argument("--follow-up", dest="follow_up", type=unquote)
     p.add_argument("--notes", type=unquote)
+    p.add_argument("--project", type=unquote)
+    p.add_argument("--folder-path", dest="folder_path", type=unquote)
     p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("summary")

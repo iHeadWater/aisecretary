@@ -31,7 +31,9 @@ All commands output JSON. A transaction looks like:
   "suggested_follow_up_at": "ISO-8601 datetime string or null",
   "created_at": "ISO-8601 datetime string",
   "updated_at": "ISO-8601 datetime string",
-  "notes": "string or null"
+  "notes": "string or null",
+  "project": "string or null (project key, e.g. from myloop configs/projects.toml)",
+  "folder_path": "string or null (associated local folder path)"
 }
 ```
 
@@ -55,7 +57,9 @@ ssh aisecretary-host "aisecretary create \
   [--owner '<owner>'] \
   [--next-action '<next_action>'] \
   [--follow-up '<ISO-8601 datetime>'] \
-  [--notes '<notes>']"
+  [--notes '<notes>'] \
+  [--project '<project key>'] \
+  [--folder-path '<local folder path>']"
 ```
 
 Rules:
@@ -64,6 +68,7 @@ Rules:
 - `--status` defaults to `new` if omitted.
 - `--owner` defaults to `unassigned` if omitted.
 - Convert natural-language follow-up times to ISO-8601 before passing to `--follow-up`.
+- `--project` / `--folder-path` are optional. Infer `project` from context (email, conversation, explicit mention); leave empty rather than guessing.
 - Output on success: the created transaction JSON.
 
 ## List Transactions
@@ -71,10 +76,11 @@ Rules:
 Use when the user asks what transactions exist or asks for the current list.
 
 ```bash
-ssh aisecretary-host "aisecretary list"
+ssh aisecretary-host "aisecretary list [--project '<project key>']"
 ```
 
 Output: JSON array of transactions ordered by `updated_at` DESC. Empty list is `[]`.
+Pass `--project` to return only transactions belonging to that project.
 
 ## Get Transaction
 
@@ -97,13 +103,15 @@ ssh aisecretary-host "aisecretary update '<id>' \
   [--owner '<owner>'] \
   [--next-action '<next_action>'] \
   [--follow-up '<ISO-8601 datetime>'] \
-  [--notes '<notes>']"
+  [--notes '<notes>'] \
+  [--project '<project key>'] \
+  [--folder-path '<local folder path>']"
 ```
 
 Rules:
 
 - Pass only fields the user wants to change.
-- To clear a nullable field, pass an empty string: `--next-action ''`.
+- To clear a nullable field, pass an empty string: `--next-action ''` (also works for `--project ''` / `--folder-path ''`).
 - Do not call with no optional flags (error code: `no_fields_to_update`).
 - If no ID is provided, ask or call `list` first to disambiguate.
 

@@ -23,13 +23,14 @@ Use when the user asks to record, create, remember, add, or track a transaction.
 
 Required argument: `--title`
 
-Optional arguments: `--status`, `--owner`, `--next-action`, `--follow-up` (ISO-8601), `--notes`
+Optional arguments: `--status`, `--owner`, `--next-action`, `--follow-up` (ISO-8601), `--notes`, `--project`, `--folder-path`
 
 Behavior:
 
 - If `--title` is missing, ask one short follow-up question.
 - If `--status` is missing, omit it (CLI defaults to `new`).
 - If `--owner` is missing, omit it (CLI defaults to `unassigned`).
+- Try to infer `--project` from context (email, conversation, or explicit mention); if unclear, omit it rather than guessing. Set `--folder-path` only when the user gives a concrete local path.
 - If follow-up time is provided, convert it to ISO-8601 before passing to `--follow-up`.
 - After success, reply with ID, title, status, owner, next action, and follow-up time.
 
@@ -44,7 +45,7 @@ ssh aisecretary-host "aisecretary list"
 Behavior:
 
 - If output is `[]`, reply that no transactions are recorded.
-- Otherwise list: ID, title, status, owner, next action, suggested follow-up time.
+- Otherwise list: ID, title, status, owner, next action, suggested follow-up time. Add `--project <key>` to filter by project, and group by project when the list spans several.
 
 ### 3. Update Transaction
 

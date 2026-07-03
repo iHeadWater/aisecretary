@@ -24,6 +24,8 @@ def _parse_row(row: sqlite3.Row) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "notes": row["notes"],
+        "project": row["project"],
+        "folder_path": row["folder_path"],
     }
 
 
@@ -41,15 +43,17 @@ def create_transaction(
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
         "notes": payload.notes,
+        "project": payload.project,
+        "folder_path": payload.folder_path,
     }
     connection.execute(
         """
         INSERT INTO transactions (
             id, title, status, next_action, owner, suggested_follow_up_at,
-            created_at, updated_at, notes
+            created_at, updated_at, notes, project, folder_path
         ) VALUES (
             :id, :title, :status, :next_action, :owner, :suggested_follow_up_at,
-            :created_at, :updated_at, :notes
+            :created_at, :updated_at, :notes, :project, :folder_path
         )
         """,
         transaction,
@@ -58,15 +62,20 @@ def create_transaction(
     return transaction
 
 
-def list_transactions(connection: sqlite3.Connection) -> list[dict]:
-    rows = connection.execute(
-        """
+def list_transactions(
+    connection: sqlite3.Connection, project: str | None = None
+) -> list[dict]:
+    query = """
         SELECT id, title, status, next_action, owner, suggested_follow_up_at,
-               created_at, updated_at, notes
+               created_at, updated_at, notes, project, folder_path
         FROM transactions
-        ORDER BY updated_at DESC
-        """
-    ).fetchall()
+    """
+    params: tuple = ()
+    if project is not None:
+        query += " WHERE project = ?"
+        params = (project,)
+    query += " ORDER BY updated_at DESC"
+    rows = connection.execute(query, params).fetchall()
     return [_parse_row(row) for row in rows]
 
 
@@ -87,7 +96,7 @@ def get_transaction(connection: sqlite3.Connection, transaction_id: str) -> dict
     row = connection.execute(
         """
         SELECT id, title, status, next_action, owner, suggested_follow_up_at,
-               created_at, updated_at, notes
+               created_at, updated_at, notes, project, folder_path
         FROM transactions
         WHERE id = ?
         """,

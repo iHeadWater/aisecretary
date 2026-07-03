@@ -37,6 +37,8 @@ def test_transaction_api_flow(tmp_path: Path) -> None:
             "title": "Partnership follow-up",
             "owner": "Owen",
             "next_action": "Confirm next meeting time",
+            "project": "myloop",
+            "folder_path": "/home/owen/projects/myloop",
         },
     )
     assert create_response.status_code == 201
@@ -44,10 +46,20 @@ def test_transaction_api_flow(tmp_path: Path) -> None:
     assert created["title"] == "Partnership follow-up"
     assert created["status"] == "new"
     assert created["owner"] == "Owen"
+    assert created["project"] == "myloop"
+    assert created["folder_path"] == "/home/owen/projects/myloop"
 
     list_response = client.get("/transactions")
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
+
+    # project filter: matching returns the row, non-matching returns empty
+    filtered_response = client.get("/transactions", params={"project": "myloop"})
+    assert filtered_response.status_code == 200
+    assert len(filtered_response.json()) == 1
+    empty_filter_response = client.get("/transactions", params={"project": "other"})
+    assert empty_filter_response.status_code == 200
+    assert empty_filter_response.json() == []
 
     get_response = client.get(f"/transactions/{created['id']}")
     assert get_response.status_code == 200

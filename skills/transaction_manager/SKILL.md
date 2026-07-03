@@ -36,10 +36,11 @@ Action:
 
 1. Extract `title`.
 2. Extract optional `owner`, `next_action`, `suggested_follow_up_at`, and `notes`.
-3. Default `status` to `new`.
-4. If `title` is missing, ask for the title before calling the API.
-5. Call `POST /transactions`.
-6. Reply only after the API returns success.
+3. Infer `project` when possible: from the email content, Feishu conversation, or an explicit project name mentioned by the user. Use the project key from myloop `configs/projects.toml` when it clearly matches; otherwise leave `project` empty rather than guessing. Optionally set `folder_path` if the user gives a concrete local path.
+4. Default `status` to `new`.
+5. If `title` is missing, ask for the title before calling the API.
+6. Call `POST /transactions`.
+7. Reply only after the API returns success.
 
 ### Query Transaction List
 
@@ -51,9 +52,9 @@ Trigger examples:
 
 Action:
 
-1. Call `GET /transactions`.
+1. Call `GET /transactions`. To narrow to one project, pass `?project=<key>` (CLI: `list --project <key>`).
 2. If the response is empty, say there are no recorded transactions.
-3. Otherwise summarize the list with ID, title, status, owner, next action, and follow-up time.
+3. Otherwise summarize the list with ID, title, status, owner, next action, and follow-up time. Group by `project` when the list spans multiple projects.
 
 ### Update Transaction
 
