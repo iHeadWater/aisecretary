@@ -64,6 +64,9 @@ PYEOF
     if echo "$RESULT" | grep -q "NOT_FOUND"; then
         fail "transaction_manager skill not found by Hermes runtime"
         info "Check that the SKILL.md exists at ~/code/aisecretary/skills/transaction_manager/SKILL.md"
+    elif [ -z "$RESULT" ]; then
+        info "Runtime skill check produced no output — not verified (e.g. venv/bin/python absent on Windows)"
+        info "Manually verify with: hermes skills list"
     else
         pass "Skill recognised: $RESULT"
     fi
