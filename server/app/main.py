@@ -1,133 +1,50 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from sqlite3 import Connection
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from server.app.database import db_session, init_db
-from server.app.schemas import (
-    Transaction,
-    TransactionCreate,
-    TransactionSummary,
-    TransactionUpdate,
-)
-from server.app.storage import (
-    create_transaction,
-    delete_transaction,
-    get_transaction,
-    list_transactions,
-    summarize_transactions,
-    update_transaction,
-)
+from server.app.api import router as api_router
+from server.app.database import init_db
+from server.app.mcp_server import mcp
+
+# Build the MCP Streamable HTTP app (creates session manager lazily)
+mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
-    yield
+    async with mcp._session_manager.run():
+        yield
 
 
 app = FastAPI(
-    title="Hermes Transaction Layer",
-    version="0.1.0",
+    title="aisecretary",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
+# CORS — allow local and Docker-network callers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://host.docker.internal:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def get_db() -> Iterator[Connection]:
-    yield from db_session()
+# REST API routes (for CLI and direct HTTP access)
+app.include_router(api_router)
 
-
-def error_detail(code: str, message: str) -> dict[str, str]:
-    return {"code": code, "message": message}
+# MCP Streamable HTTP transport — same URL for GET (SSE) and POST (JSON-RPC)
+app.mount("/mcp", mcp_app)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health():
     return {"status": "ok"}
-
-
-@app.post(
-    "/transactions",
-    response_model=Transaction,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_transaction_endpoint(
-    payload: TransactionCreate,
-    connection: Connection = Depends(get_db),
-) -> dict:
-    return create_transaction(connection, payload)
-
-
-@app.get("/transactions", response_model=list[Transaction])
-def list_transactions_endpoint(
-    project: str | None = None,
-    connection: Connection = Depends(get_db),
-) -> list[dict]:
-    return list_transactions(connection, project=project)
-
-
-@app.get("/transactions/summary", response_model=TransactionSummary)
-def summarize_transactions_endpoint(
-    connection: Connection = Depends(get_db),
-) -> dict:
-    return summarize_transactions(connection)
-
-
-@app.get("/transactions/{transaction_id}", response_model=Transaction)
-def get_transaction_endpoint(
-    transaction_id: str,
-    connection: Connection = Depends(get_db),
-) -> dict:
-    transaction = get_transaction(connection, transaction_id)
-    if transaction is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_detail(
-                "transaction_not_found",
-                "Transaction not found",
-            ),
-        )
-    return transaction
-
-
-@app.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_transaction_endpoint(
-    transaction_id: str,
-    connection: Connection = Depends(get_db),
-) -> None:
-    if not delete_transaction(connection, transaction_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_detail(
-                "transaction_not_found",
-                "Transaction not found",
-            ),
-        )
-
-
-@app.patch("/transactions/{transaction_id}", response_model=Transaction)
-def update_transaction_endpoint(
-    transaction_id: str,
-    payload: TransactionUpdate,
-    connection: Connection = Depends(get_db),
-) -> dict:
-    if not payload.model_fields_set:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail(
-                "no_fields_to_update",
-                "At least one transaction field is required",
-            ),
-        )
-
-    transaction = update_transaction(connection, transaction_id, payload)
-    if transaction is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_detail(
-                "transaction_not_found",
-                "Transaction not found",
-            ),
-        )
-    return transaction
