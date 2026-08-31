@@ -5,7 +5,7 @@ description = "Transaction database service with MCP tools for Hermes AI agent."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",
     "pydantic-settings>=2.6.0",
     "uvicorn[standard]>=0.30.0",
 ]

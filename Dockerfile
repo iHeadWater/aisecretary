@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e . && pip install --no-cache-dir mcp
+RUN pip install --no-cache-dir -e . && pip install --no-cache-dir "mcp<2"
 
 # Copy application code
 COPY server/ ./server/
