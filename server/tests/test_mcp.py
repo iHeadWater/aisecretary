@@ -1,9 +1,14 @@
+import asyncio
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from server.app import config
 from server.app.database import init_db
+from server.app.main import app
 from server.app.mcp_server import (
+    mcp,
     tool_batch_update_transactions,
     tool_create_transaction,
     tool_delete_transaction,
@@ -12,6 +17,16 @@ from server.app.mcp_server import (
     tool_summarize_transactions,
     tool_update_transaction,
 )
+
+EXPECTED_MCP_TOOLS = {
+    "create_transaction",
+    "list_transactions",
+    "get_transaction",
+    "update_transaction",
+    "delete_transaction",
+    "summarize_transactions",
+    "batch_update_transactions",
+}
 
 
 class TestMcpTools:
@@ -178,3 +193,74 @@ class TestMcpTools:
     def test_batch_update_invalid_json(self) -> None:
         result = json.loads(tool_batch_update_transactions(updates="not json"))
         assert result["error"] == "invalid_json"
+
+
+def _sse_json(text: str) -> dict:
+    """Parse the first JSON payload from an SSE response body.
+
+    Args:
+        text: Raw SSE response text.
+
+    Returns:
+        The decoded JSON object from the first ``data:`` line.
+
+    Raises:
+        AssertionError: If the body has no SSE data line.
+    """
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            return json.loads(line[6:])
+    raise AssertionError(f"No SSE data line in response: {text!r}")
+
+
+class TestMcpHttpTransport:
+    """Streamable HTTP tests for the mounted ``/mcp`` endpoint."""
+
+    def test_registered_tool_names(self) -> None:
+        tools = asyncio.run(mcp.list_tools())
+        assert {tool.name for tool in tools} == EXPECTED_MCP_TOOLS
+
+    def test_initialize_and_list_tools(self) -> None:
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        with TestClient(app) as client:
+            init = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "aisecretary-test", "version": "0.0.1"},
+                    },
+                },
+                headers=headers,
+            )
+            assert init.status_code == 200
+            body = _sse_json(init.text)
+            assert body["result"]["serverInfo"]["name"] == "aisecretary"
+            session_headers = {
+                **headers,
+                "mcp-session-id": init.headers["mcp-session-id"],
+            }
+
+            notify = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=session_headers,
+            )
+            assert notify.status_code == 202
+
+            listed = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                headers=session_headers,
+            )
+            assert listed.status_code == 200
+            names = {tool["name"] for tool in _sse_json(listed.text)["result"]["tools"]}
+            assert names == EXPECTED_MCP_TOOLS
+
