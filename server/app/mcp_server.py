@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from server.app.config import settings
 from server.app.database import get_connection, init_db
@@ -16,11 +16,10 @@ from server.app.storage import (
 )
 from server.app.schemas import TransactionCreate, TransactionUpdate
 
-mcp = FastMCP(
+mcp = MCPServer(
     "aisecretary",
-    host="0.0.0.0",
-    streamable_http_path="/",
     instructions="Hermes transaction database service — create, query, update, delete, and summarize work items.",
+    version="0.2.0",
 )
 
 STATUS_DESC = """
