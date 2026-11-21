@@ -98,7 +98,6 @@ Backup managed by [myopenclaw](https://github.com/OuyangWenyu/myopenclaw) `backu
 ```bash
 # Install
 uv sync
-uv pip install mcp
 
 # Run locally (without Docker)
 uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
