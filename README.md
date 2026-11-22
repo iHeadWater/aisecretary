@@ -122,7 +122,7 @@ uv run python -c "import server.app as a; print(a.__version__)"
 
 How it works: [hatch-vcs](https://github.com/ofek/hatch-vcs) reads `git describe` at build time (`[tool.hatch.version]` in `pyproject.toml`) and generates `server/app/_version.py`, which is gitignored and must not be committed. `server/app/main.py` and `server/app/mcp_server.py` both report `server.app.__version__`, so the FastAPI docs and the MCP `serverInfo` always agree with the tag.
 
-Docker builds copy `.git` into the build context (~2 MB) so the image carries the exact tag it was built from; building from a tarball falls back to `0.0.1`.
+Docker builds ship `.git` into the build context (~2 MB) and the builder stage installs `git`, so `hatch-vcs` can read the tag; the runtime stage contains only the venv, without `git`, `uv`, or the repo. Building from a tarball falls back to `0.0.1`.
 
 ### Release
 
