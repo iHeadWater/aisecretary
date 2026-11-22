@@ -70,6 +70,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY skills/ ./skills/
 COPY prompts/ ./prompts/
+# 便于运维在容器里直接冒烟（仅标准库 + server 包）
+COPY scripts/ppt_smoke.py ./scripts/ppt_smoke.py
 
 ENV PATH="/app/.venv/bin:$PATH" \
     DATABASE_PATH=/data/transactions.sqlite \

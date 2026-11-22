@@ -49,6 +49,7 @@ python3 scripts/aisecretary_cli.py summary
 | `PPT_OUT_DIR` | `/opt/data/tmp/pptpage` | PNG 输出目录（必须与 Hermes 用同一绝对路径挂载） |
 | `PPT_DPI` | `150` | 默认渲染 dpi（72–300） |
 | `PPT_TIMEOUT` | `60` | 单页渲染预算（秒），需小于 Hermes MCP 的 timeout |
+| `PPT_CACHE_MAX_AGE_DAYS` | `7` | 缓存 PNG 保留天数，渲染时顺带清理；`<=0` 关闭 |
 
 ## MCP Tools
 
@@ -101,6 +102,8 @@ ppt_outline()                                                → 每页标题 + 
 ```
 
 Hermes 收到结果后用 `MEDIA:<path>` 回复，飞书即发图片消息。
+
+> 生产状态（v0.2.1）：已在飞书端实测通过 —— 「第 N 页截图」返回图片消息；真实 157.9MB / 64 页 deck，第 5/6/8 页均 2001×1125，耗时 9.4–9.7s。
 
 要求与约束：
 

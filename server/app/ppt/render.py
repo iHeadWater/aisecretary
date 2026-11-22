@@ -141,10 +141,29 @@ def _pdf_to_png(pdf: Path, dpi: int, work: Path, timeout: float) -> Path:
     return pngs[0]
 
 
+def prune_cache(out_dir: Path, max_age_days: int | None = None) -> int:
+    """删除超过保留期的缓存 PNG，返回删除数量。<=0 表示不清理。"""
+    days = settings.ppt_cache_max_age_days if max_age_days is None else max_age_days
+    if days <= 0:
+        return 0
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for item in out_dir.glob("*.png"):
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def render_slide_png(deck: Path, page: int, dpi: int, slide_count: int) -> dict[str, Any]:
     out_dir = settings.ppt_out_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_dir.chmod(0o755)
+    # 顺手清理过期缓存，避免 ~/.hermes/tmp/pptpage 无限增长
+    prune_cache(out_dir)
 
     destination = out_dir / f"{_safe_stem(deck)}-{deck_key(deck)}-p{page}-{dpi}.png"
     started = time.monotonic()

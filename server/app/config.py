@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     ppt_dpi: int = 150
     # 单页渲染总预算，秒；必须小于 Hermes MCP 客户端的 timeout(120s)
     ppt_timeout: int = 60
+    # 缓存 PNG 的保留天数；<=0 表示不自动清理
+    ppt_cache_max_age_days: int = 7
     ppt_max_slides_outline: int = 200
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

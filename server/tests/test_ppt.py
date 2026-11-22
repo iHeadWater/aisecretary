@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -229,6 +231,31 @@ class TestRenderUnavailable:
         with pytest.raises(PptError) as exc:
             service.render_slide(1, str(deck_dir), 150)
         assert exc.value.code == "render_unavailable"
+
+
+class TestCachePrune:
+    def test_prune_old_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(config.settings, "ppt_cache_max_age_days", 7)
+        stale = tmp_path / "stale.png"
+        fresh = tmp_path / "fresh.png"
+        stale.write_bytes(b"png")
+        fresh.write_bytes(b"png")
+        past = time.time() - 8 * 86400
+        os.utime(stale, (past, past))
+
+        assert render.prune_cache(tmp_path) == 1
+        assert not stale.exists()
+        assert fresh.exists()
+
+    def test_prune_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(config.settings, "ppt_cache_max_age_days", 0)
+        stale = tmp_path / "stale.png"
+        stale.write_bytes(b"png")
+        past = time.time() - 99 * 86400
+        os.utime(stale, (past, past))
+
+        assert render.prune_cache(tmp_path) == 0
+        assert stale.exists()
 
 
 class TestMcpPptTools:
