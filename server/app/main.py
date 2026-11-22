@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.app import __version__
 from server.app.api import router as api_router
 from server.app.database import init_db
 from server.app.mcp_server import mcp
@@ -25,7 +26,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="aisecretary",
-    version="0.2.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

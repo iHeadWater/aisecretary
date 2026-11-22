@@ -106,6 +106,34 @@ uv run uvicorn server.app.main:app --host 127.0.0.1 --port 8000 --reload
 uv run pytest server/tests/ -v
 ```
 
+## Versioning
+
+The version comes from **git tags** — never write a version string by hand.
+
+```bash
+uv run python -c "import server.app as a; print(a.__version__)"
+```
+
+| Situation | Version |
+|-----------|---------|
+| On tag `vX.Y.Z` | `X.Y.Z` |
+| N commits after a tag | `X.Y.{Z+1}.devN` |
+| No git metadata (e.g. tarball build) | `0.0.1` (fallback) |
+
+How it works: [hatch-vcs](https://github.com/ofek/hatch-vcs) reads `git describe` at build time (`[tool.hatch.version]` in `pyproject.toml`) and generates `server/app/_version.py`, which is gitignored and must not be committed. `server/app/main.py` and `server/app/mcp_server.py` both report `server.app.__version__`, so the FastAPI docs and the MCP `serverInfo` always agree with the tag.
+
+Docker builds copy `.git` into the build context (~2 MB) so the image carries the exact tag it was built from; building from a tarball falls back to `0.0.1`.
+
+### Release
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+gh release create v0.1.1 --title v0.1.1 --notes "..."
+```
+
+No PyPI publishing: releases are git tags + GitHub Releases, and the deployable artifact is the Docker image built from that tag.
+
 ## Project Files
 
 | Path | Purpose |

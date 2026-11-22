@@ -1,6 +1,10 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
 [project]
 name = "aisecretary"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Transaction database service with MCP tools for Hermes AI agent."
 requires-python = ">=3.11"
 dependencies = [
@@ -16,7 +20,32 @@ dev = [
     "pytest>=8.3.0",
 ]
 
+# 版本号由 git tag 推导（参考 torchhydro 的做法）：
+#   tag v0.1.1 上 → 0.1.1
+#   tag 之后 N 个提交 → 0.1.2.devN+g<hash>
+# 不要在本文件里手写 version。
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.1"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "server/app/_version.py"
+
+# 只把 server/ 打进 wheel；skills/ prompts/ scripts/ data/ 不属于包
+[tool.hatch.build.targets.wheel]
+packages = ["server"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/server",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE.md",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["server/tests"]
 pythonpath = ["."]
-

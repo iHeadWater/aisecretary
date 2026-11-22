@@ -3,6 +3,7 @@ from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
 
+from server.app import __version__
 from server.app.config import settings
 from server.app.database import get_connection, init_db
 from server.app.models import TransactionStatus
@@ -19,7 +20,7 @@ from server.app.schemas import TransactionCreate, TransactionUpdate
 mcp = MCPServer(
     "aisecretary",
     instructions="Hermes transaction database service — create, query, update, delete, and summarize work items.",
-    version="0.2.0",
+    version=__version__,
 )
 
 STATUS_DESC = """

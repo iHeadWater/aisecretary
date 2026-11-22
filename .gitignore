@@ -15,3 +15,6 @@ logs/
 # Local-only Claude Code guidance; do not publish
 CLAUDE.md
 
+
+# hatch-vcs generated version file (do not commit)
+server/app/_version.py
