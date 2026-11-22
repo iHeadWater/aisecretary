@@ -26,6 +26,11 @@ EXPECTED_MCP_TOOLS = {
     "delete_transaction",
     "summarize_transactions",
     "batch_update_transactions",
+    "ppt_use_deck",
+    "ppt_get_deck",
+    "ppt_outline",
+    "ppt_get_slide",
+    "ppt_render_slide",
 }
 
 

@@ -1,6 +1,6 @@
 # aisecretary
 
-Transaction database service for Hermes AI agent. MCP tools for CRUD + summary + batch update, Docker-packaged with persistent SQLite storage.
+Hermes 秘书服务：事务（transaction）管理 + PowerPoint 单页真实渲染/解读，MCP over Streamable HTTP，Docker 打包，SQLite 持久化。
 
 ## Architecture
 
@@ -8,7 +8,7 @@ Transaction database service for Hermes AI agent. MCP tools for CRUD + summary +
 ┌─ myopenclaw docker-compose ───────────────────────┐
 │                                                    │
 │  Hermes ──MCP/HTTP──► aisecretary:8000             │
-│                       ├─ 7 MCP tools (self-desc)   │
+│                       ├─ 12 MCP tools (self-desc)  │
 │                       ├─ REST API /api/*            │
 │                       └─ GET /health                │
 │                          │                         │
@@ -16,7 +16,8 @@ Transaction database service for Hermes AI agent. MCP tools for CRUD + summary +
 └────────────────────────────────────────────────────┘
 ```
 
-- **MCP Streamable HTTP**: Hermes auto-discovers 7 tools via `http://aisecretary:8000/mcp`
+- **MCP Streamable HTTP**: Hermes auto-discovers 12 tools via `http://aisecretary:8000/mcp`
+- **PPT**: LibreOffice 单页渲染（`soffice` PageRange → PDF → `pdftoppm` → PNG），python-pptx 只负责文本/表格/备注
 - **REST API**: Thin CLI (`aisecretary`) calls `/api/*` like `gh` calls GitHub API
 - **/health**: Docker healthcheck + myopenclaw monitoring
 - **Data**: SQLite file at `~/.myagentdata/aisecretary/transactions.sqlite`, volume-mounted into `/data/`
@@ -44,6 +45,10 @@ python3 scripts/aisecretary_cli.py summary
 |----------|---------|---------|
 | `DATABASE_PATH` | `/data/transactions.sqlite` | SQLite file path (inside container) |
 | `AISECRETARY_URL` | `http://localhost:8000/api` | API base URL (for CLI) |
+| `PPT_ROOTS` | `/opt/data/tmp/xdsh` | 允许访问的 deck 根目录（逗号分隔，`resolve()` 后必须落在其中） |
+| `PPT_OUT_DIR` | `/opt/data/tmp/pptpage` | PNG 输出目录（必须与 Hermes 用同一绝对路径挂载） |
+| `PPT_DPI` | `150` | 默认渲染 dpi（72–300） |
+| `PPT_TIMEOUT` | `60` | 单页渲染预算（秒），需小于 Hermes MCP 的 timeout |
 
 ## MCP Tools
 
@@ -58,6 +63,11 @@ Hermes connects to `http://aisecretary:8000/mcp` (Streamable HTTP transport) and
 | `delete_transaction` | Permanently remove an item |
 | `batch_update_transactions` | Update multiple items in one call |
 | `summarize_transactions` | Count by status |
+| `ppt_use_deck` | 校验并记住当前 deck，返回页数/大小 |
+| `ppt_get_deck` | 返回当前 deck |
+| `ppt_outline` | 每页标题 + 首行正文 |
+| `ppt_get_slide` | 单页文本/表格/备注/图片数 |
+| `ppt_render_slide` | 单页真实渲染为 PNG，返回绝对路径 |
 
 ### Filter Examples
 
@@ -69,6 +79,49 @@ list_transactions(project="myproject")                          # 按项目
 ```
 
 See `skills/transaction_manager/SKILL.md` for Hermes usage patterns and trigger examples.
+
+## PPT (single-slide render)
+
+Hermes 说「把第 N 页发我一张截图」时，aisecretary 用 LibreOffice 真实渲染该页，而不是按形状坐标重绘。
+
+```
+Hermes ──MCP──► aisecretary
+                 ├─ python-pptx : 文本 / 表格 / 备注
+                 ├─ soffice     : PageRange 只导第 N 页 → PDF（整本转换会 OOM）
+                 └─ pdftoppm    : PDF → PNG（150dpi → 2001×1125）
+```
+
+典型调用：
+
+```text
+ppt_use_deck(path="/opt/data/tmp/xdsh/9-主题介绍-….pptx")   → slide_count=64
+ppt_render_slide(page=5)                                     → {"path": "/opt/data/tmp/pptpage/…-p5-150.png", …}
+ppt_get_slide(page=8)                                        → 文本 / 表格 / 备注
+ppt_outline()                                                → 每页标题 + 首行
+```
+
+Hermes 收到结果后用 `MEDIA:<path>` 回复，飞书即发图片消息。
+
+要求与约束：
+
+- **两个容器必须把同一批宿主目录挂在同一绝对路径**（`~/.hermes/tmp/xdsh → /opt/data/tmp/xdsh` 只读、`~/.hermes/tmp/pptpage → /opt/data/tmp/pptpage` 可写），否则 `MEDIA:` 路径在 Hermes 侧不存在。
+- 镜像需 `libreoffice-impress` + `fonts-noto-cjk` + `poppler-utils`（已写进 Dockerfile，镜像约 +400MB）。
+- 内存：python-pptx 解析 165MB deck 峰值约 265MB，LibreOffice 单页渲染峰值约 2GB → compose 给 3G / 2 CPU，渲染全局单并发。
+- 字体：镜像只带 Noto CJK，`微软雅黑/等线/黑体 → Noto Sans CJK SC`、`宋体 → Noto Serif CJK SC` 由 `docker/fonts/99-cjk-alias.conf` 做替换。要与 PowerPoint 像素级一致需自行挂载已授权字体。
+- 只做单页；没有整本转换工具。渲染失败只影响该次调用，事务工具不受影响。
+
+冒烟（真实 deck，第 5/6/8 页，阈值 20s）：
+
+```bash
+docker build --target test -t aisecretary:test .
+docker run --rm \
+  -v ~/.hermes/tmp/xdsh:/opt/data/tmp/xdsh:ro \
+  -v ~/.hermes/tmp/pptpage:/opt/data/tmp/pptpage \
+  aisecretary:test .venv/bin/python scripts/ppt_smoke.py \
+  --deck "/opt/data/tmp/xdsh/9-主题介绍-人工智能驱动的水利科学研究.pptx"
+```
+
+See `skills/ppt_secretary/SKILL.md` for Hermes-side trigger rules.
 
 ## REST API
 
@@ -139,12 +192,16 @@ No PyPI publishing: releases are git tags + GitHub Releases, and the deployable 
 | Path | Purpose |
 |------|---------|
 | `server/app/main.py` | FastAPI app: MCP mount + REST router + /health |
-| `server/app/mcp_server.py` | 7 MCP tool definitions |
+| `server/app/mcp_server.py` | 12 MCP tool definitions |
+| `server/app/ppt/` | PPT 能力：路径校验 / 内容提取 / 单页渲染 / 状态 |
 | `server/app/api.py` | REST /api/* endpoints (for CLI) |
 | `server/app/storage.py` | Business logic — all tools call this |
 | `server/app/database.py` | SQLite connection + idempotent schema migration |
 | `server/app/schemas.py` | Pydantic models |
 | `scripts/aisecretary_cli.py` | Thin HTTP client CLI |
-| `skills/transaction_manager/SKILL.md` | Hermes skill contract |
-| `Dockerfile` | Python 3.12-slim image |
+| `skills/transaction_manager/SKILL.md` | Hermes 事务 skill |
+| `skills/ppt_secretary/SKILL.md` | Hermes PPT skill |
+| `docker/fonts/99-cjk-alias.conf` | 微软字体 → Noto CJK 的 fontconfig 别名 |
+| `scripts/ppt_smoke.py` | 真实 deck 单页渲染冒烟 |
+| `Dockerfile` | 多阶段：osdeps(LO+字体) / builder / runtime / test |
 | `docker-compose.yml` | Volume mount + healthcheck |

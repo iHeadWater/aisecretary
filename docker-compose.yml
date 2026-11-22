@@ -6,9 +6,22 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_PATH=/data/transactions.sqlite
+      - PPT_ROOTS=/opt/data/tmp/xdsh
+      - PPT_OUT_DIR=/opt/data/tmp/pptpage
+      - PPT_DPI=150
+      - PPT_TIMEOUT=60
     volumes:
       - ~/.myagentdata/aisecretary:/data
+      # deck 只读，PNG 输出可写；两个容器用同一绝对路径，MEDIA: 才能直接用
+      - ~/.hermes/tmp/xdsh:/opt/data/tmp/xdsh:ro
+      - ~/.hermes/tmp/pptpage:/opt/data/tmp/pptpage
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # 单页渲染峰值约 2GB（LO），python-pptx 解析 165MB deck 峰值约 265MB
+          memory: 3G
+          cpus: "2.0"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

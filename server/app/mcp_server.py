@@ -3,7 +3,7 @@ from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
 
-from server.app import __version__
+from server.app import __version__, ppt
 from server.app.config import settings
 from server.app.database import get_connection, init_db
 from server.app.models import TransactionStatus
@@ -15,11 +15,16 @@ from server.app.storage import (
     summarize_transactions,
     update_transaction,
 )
+from server.app.ppt import PptError
 from server.app.schemas import TransactionCreate, TransactionUpdate
 
 mcp = MCPServer(
     "aisecretary",
-    instructions="Hermes transaction database service — create, query, update, delete, and summarize work items.",
+    instructions=(
+        "Hermes secretary service — manage work items (create, query, update, delete, "
+        "summarize) and inspect PowerPoint decks (outline, single-slide content, "
+        "single-slide PNG rendering)."
+    ),
     version=__version__,
 )
 
@@ -276,3 +281,76 @@ def _serialize_result(result: dict) -> dict:
             for k, v in serialized["by_status"].items()
         }
     return serialized
+
+
+# ---------------------------------------------------------------------------
+# PPT 工具：单页真实渲染 + 内容解读
+# ---------------------------------------------------------------------------
+
+
+def _ppt_json(func, *args, **kwargs) -> str:
+    """PPT 工具统一出口：任何异常都收敛成 JSON 错误，不抛回协议层。"""
+    try:
+        return json.dumps(func(*args, **kwargs), ensure_ascii=False)
+    except PptError as exc:
+        return json.dumps(exc.to_dict(), ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001 - 渲染链路的兜底，绝不让服务挂掉
+        return json.dumps(
+            {"error": "internal_error", "message": str(exc)[:300]}, ensure_ascii=False
+        )
+
+
+@mcp.tool(
+    name="ppt_use_deck",
+    description="Set the current PowerPoint deck and remember it for later calls. "
+    "Path must be an existing .pptx under the allowed PPT_ROOTS directory. "
+    "Returns path, file_name, slide_count, size_mb.",
+)
+def tool_ppt_use_deck(path: str) -> str:
+    """Select the current deck."""
+    return _ppt_json(ppt.use_deck, path)
+
+
+@mcp.tool(
+    name="ppt_get_deck",
+    description="Return the currently selected deck (path, file_name, slide_count). "
+    "Returns error code 'no_deck' when nothing is selected.",
+)
+def tool_ppt_get_deck() -> str:
+    """Show the current deck."""
+    return _ppt_json(ppt.get_deck)
+
+
+@mcp.tool(
+    name="ppt_outline",
+    description="List every slide's title and first line of body text. "
+    "Use for an overview of the whole deck. Omit path to use the current deck.",
+)
+def tool_ppt_outline(path: str | None = None, max_slides: int = 64) -> str:
+    """Summarize deck structure."""
+    return _ppt_json(ppt.outline, path, max_slides)
+
+
+@mcp.tool(
+    name="ppt_get_slide",
+    description="Get one slide's content: title, text paragraphs, tables, speaker notes, "
+    "image count, whether it has video, and layout name. Page is 1-based. "
+    "Omit path to use the current deck. Returns 'slide_out_of_range' with slide_count when out of range.",
+)
+def tool_ppt_get_slide(page: int, path: str | None = None) -> str:
+    """Read a single slide's content."""
+    return _ppt_json(ppt.get_slide, page, path)
+
+
+@mcp.tool(
+    name="ppt_render_slide",
+    description="Render exactly one slide to a real PNG via LibreOffice (not a redraw). "
+    "Returns the absolute PNG path, width, height, page, slide_count, ms and cached flag. "
+    "Page is 1-based; dpi is 72-300 (default 150). Omit path to use the current deck. "
+    "The returned path can be sent by Hermes as 'MEDIA:<path>'.",
+)
+def tool_ppt_render_slide(
+    page: int, path: str | None = None, dpi: int = 150
+) -> str:
+    """Render one slide to PNG."""
+    return _ppt_json(ppt.render_slide, page, path, dpi)

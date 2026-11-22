@@ -43,6 +43,15 @@ def init_db() -> None:
             """
         )
         _sync_columns(connection)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ppt_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
 
 def _sync_columns(connection: sqlite3.Connection) -> None:
