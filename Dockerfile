@@ -44,6 +44,24 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
+# ---- test：带 dev 依赖，跑完整 pytest（含真实渲染用例） ----
+FROM osdeps AS test
+
+COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /bin/
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
+COPY --from=builder /app /app
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
+
+CMD [".venv/bin/pytest", "-q"]
+
 # ---- runtime：只要 venv，不带 git / uv / 源码仓库 ----
 FROM osdeps AS runtime
 
@@ -63,21 +81,3 @@ ENV PATH="/app/.venv/bin:$PATH" \
 EXPOSE 8000
 
 CMD ["uvicorn", "server.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# ---- test：带 dev 依赖，跑完整 pytest（含真实渲染用例） ----
-FROM osdeps AS test
-
-COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /bin/
-
-WORKDIR /app
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0
-
-COPY --from=builder /app /app
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen
-
-CMD [".venv/bin/pytest", "-q"]
