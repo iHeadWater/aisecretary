@@ -10,12 +10,14 @@ backups/
 logs/
 .codegraph/
 .claude/
-.omx/
 .DS_Store
 *.sqlite
 *.sqlite3
 *.db
 .env
+
+# 注意：不要排除已纳入 git 跟踪的目录（如 .omx/）。
+# 构建上下文缺文件会让工作区变 dirty，hatch-vcs 会把版本降级成 X.Y.Z.dev0。
 
 # hatch-vcs generated version file
 server/app/_version.py
