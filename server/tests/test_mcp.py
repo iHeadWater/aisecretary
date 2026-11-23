@@ -31,6 +31,7 @@ EXPECTED_MCP_TOOLS = {
     "ppt_outline",
     "ppt_get_slide",
     "ppt_render_slide",
+    "ppt_render_pages",
     "link_transactions",
     "unlink_transactions",
     "merge_transactions",

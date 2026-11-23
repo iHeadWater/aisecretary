@@ -26,8 +26,8 @@ mcp = MCPServer(
     "aisecretary",
     instructions=(
         "Hermes secretary service — manage work items (create, query, update, delete, "
-        "summarize) and inspect PowerPoint decks (outline, single-slide content, "
-        "single-slide PNG rendering)."
+        "summarize) and inspect PowerPoint decks (outline, slide content, "
+        "single-slide and multi-slide PNG rendering)."
     ),
     version=__version__,
 )
@@ -367,13 +367,34 @@ def tool_ppt_get_slide(page: int, path: str | None = None) -> str:
     description="Render exactly one slide to a real PNG via LibreOffice (not a redraw). "
     "Returns the absolute PNG path, width, height, page, slide_count, ms and cached flag. "
     "Page is 1-based; dpi is 72-300 (default 150). Omit path to use the current deck. "
-    "The returned path can be sent by Hermes as 'MEDIA:<path>'.",
+    "The returned path can be sent by Hermes as 'MEDIA:<path>'. "
+    "For several pages in one go use ppt_render_pages instead.",
 )
 def tool_ppt_render_slide(
     page: int, path: str | None = None, dpi: int = 150
 ) -> str:
     """Render one slide to PNG."""
     return _ppt_json(ppt.render_slide, page, path, dpi)
+
+
+@mcp.tool(
+    name="ppt_render_pages",
+    description="Render several slides to real PNGs in one call — use this when the user "
+    "asks for '第 5-8 页' or '5、6、9 页'. pages accepts '5', '5-8', '5,6,9' or '5-8,12'. "
+    "Consecutive pages are rendered together (one LibreOffice run), so a contiguous range "
+    "is much faster than one call per page. Returns a JSON array (same order as requested) "
+    "with path, page, width, height, dpi, slide_count, ms and cached per item. "
+    "At most 32 pages per call. Each path can be sent as 'MEDIA:<path>'.",
+)
+def tool_ppt_render_pages(
+    pages: str, path: str | None = None, dpi: int = 150
+) -> str:
+    """Render several slides to PNGs."""
+    return _ppt_json(_render_pages_spec, pages, path, dpi)
+
+
+def _render_pages_spec(pages: str, path: str | None, dpi: int) -> list[dict]:
+    return ppt.render_pages(ppt.parse_pages(pages), path, dpi)
 
 
 # ---------------------------------------------------------------------------

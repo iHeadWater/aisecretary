@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # 缓存 PNG 的保留天数；<=0 表示不自动清理
     ppt_cache_max_age_days: int = 7
     ppt_max_slides_outline: int = 200
+    # 一次渲染最多合并多少页：LO 启动成本约 0.45s，合并连续页可省掉重复启动；
+    # 但页数越多内存越高（1 页 236MB / 8 页 318MB / 32 页 528MB），故设上限。
+    ppt_batch_max: int = 8
+    # 是否先裁成「只含目标页」的切片再渲染：单页峰值 1.3GB → 240MB
+    ppt_slice_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

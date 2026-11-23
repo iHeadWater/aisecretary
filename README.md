@@ -17,7 +17,7 @@ Hermes 秘书服务：事务（transaction）管理 + PowerPoint 单页真实渲
 ```
 
 - **MCP Streamable HTTP**: Hermes auto-discovers 15 tools via `http://aisecretary:8000/mcp`
-- **PPT**: LibreOffice 单页渲染（`soffice` PageRange → PDF → `pdftoppm` → PNG），python-pptx 只负责文本/表格/备注
+- **PPT**: LibreOffice 真实渲染（单页切片 → PDF → `pdftoppm` → PNG），python-pptx 只负责文本/表格/备注
 - **REST API**: Thin CLI (`aisecretary`) calls `/api/*` like `gh` calls GitHub API
 - **/health**: Docker healthcheck + myopenclaw monitoring
 - **Data**: SQLite file at `~/.myagentdata/aisecretary/transactions.sqlite`, volume-mounted into `/data/`
@@ -49,7 +49,9 @@ python3 scripts/aisecretary_cli.py summary
 | `PPT_OUT_DIR` | `/opt/data/tmp/pptpage` | PNG 输出目录（必须与 Hermes 用同一绝对路径挂载） |
 | `PPT_DPI` | `150` | 默认渲染 dpi（72–300） |
 | `PPT_TIMEOUT` | `60` | 单页渲染预算（秒），需小于 Hermes MCP 的 timeout |
-| `PPT_CACHE_MAX_AGE_DAYS` | `7` | 缓存 PNG 保留天数，渲染时顺带清理；`<=0` 关闭 |
+| `PPT_CACHE_MAX_AGE_DAYS` | `7` | 缓存 PNG 与切片保留天数，渲染时顺带清理；`<=0` 关闭 |
+| `PPT_BATCH_MAX` | `8` | 一次渲染最多合并多少连续页：省掉重复的 LO 启动，又限制峰值内存 |
+| `PPT_SLICE_ENABLED` | `true` | 先裁成「只含目标页」的切片再渲染；`false` 时回退整本 deck + PageRange |
 
 ## MCP Tools
 
@@ -69,6 +71,7 @@ Hermes connects to `http://aisecretary:8000/mcp` (Streamable HTTP transport) and
 | `ppt_outline` | 每页标题 + 首行正文 |
 | `ppt_get_slide` | 单页文本/表格/备注/图片数 |
 | `ppt_render_slide` | 单页真实渲染为 PNG，返回绝对路径 |
+| `ppt_render_pages` | 多页一次渲染（`5-8` / `5,6,9`），连续页合并成一次 LO 运行 |
 | `link_transactions` | 建立事务关联（part_of / blocks / related） |
 | `unlink_transactions` | 删除关联 |
 | `merge_transactions` | 把重复事务合并进主事务，保留历史 |
@@ -84,39 +87,62 @@ list_transactions(project="myproject")                          # 按项目
 
 See `skills/transaction_manager/SKILL.md` for Hermes usage patterns and trigger examples.
 
-## PPT (single-slide render)
+## PPT (真渲染：单页 / 多页)
 
 Hermes 说「把第 N 页发我一张截图」时，aisecretary 用 LibreOffice 真实渲染该页，而不是按形状坐标重绘。
 
 ```
 Hermes ──MCP──► aisecretary
+                 ├─ slice       : 只含目标页的临时 pptx（0.8MB，替代整本 158MB）
                  ├─ python-pptx : 文本 / 表格 / 备注
-                 ├─ soffice     : PageRange 只导第 N 页 → PDF（整本转换会 OOM）
+                 ├─ soffice     : 切片 → PDF
                  └─ pdftoppm    : PDF → PNG（150dpi → 2001×1125）
 ```
+
+**为什么要切片**：LibreOffice 渲染任意一页都会先把整本 deck 载入。实测 158MB / 64 页：
+
+| 输入 | 峰值内存 | 单页耗时 |
+|---|---|---|
+| 整本 deck（PageRange 只导一页） | 1.3–2.0 GB | 9–11 s |
+| 只含目标页的切片 | **236 MB** | **0.6 s** |
+
+**多页怎么切**：`PPT_BATCH_MAX`（默认 8）控制一次合并渲染几页。一次请求里的连续页
+合成一个切片、只起一次 soffice：
+
+| 请求 | 分页渲染 | 合并渲染 |
+|---|---|---|
+| 1 页 | 1.0 s | 1.0 s |
+| 4 页连续 | ~4.2 s | **~2.8 s** |
+| 8 页连续 | ~8.4 s | **~5.2 s** |
+
+上限 8 页是因为内存随页数上涨（8 页 318 MB / 16 页 353 MB / 32 页 528 MB），
+再大时间收益也消失。超过 8 页会自动分批；单次调用最多 32 页。
 
 典型调用：
 
 ```text
 ppt_use_deck(path="/opt/data/tmp/xdsh/9-主题介绍-….pptx")   → slide_count=64
 ppt_render_slide(page=5)                                     → {"path": "/opt/data/tmp/pptpage/…-p5-150.png", …}
+ppt_render_pages(pages="5-8")                                → [{path, page, width, height}, …]
 ppt_get_slide(page=8)                                        → 文本 / 表格 / 备注
 ppt_outline()                                                → 每页标题 + 首行
 ```
 
 Hermes 收到结果后用 `MEDIA:<path>` 回复，飞书即发图片消息。
 
-> 生产状态（v0.2.1）：已在飞书端实测通过 —— 「第 N 页截图」返回图片消息；真实 157.9MB / 64 页 deck，第 5/6/8 页均 2001×1125，耗时 9.4–9.7s。
+> 生产状态：v0.2.1 已在飞书端实测通过（单页 9.4–9.7s，2001×1125）；v0.2.3 起走切片，
+> 单页约 0.6–1.0s、峰值约 236MB。
 
 要求与约束：
 
 - **两个容器必须把同一批宿主目录挂在同一绝对路径**（`~/.hermes/tmp/xdsh → /opt/data/tmp/xdsh` 只读、`~/.hermes/tmp/pptpage → /opt/data/tmp/pptpage` 可写），否则 `MEDIA:` 路径在 Hermes 侧不存在。
 - 镜像需 `libreoffice-impress` + `fonts-noto-cjk` + `poppler-utils`（已写进 Dockerfile，镜像约 +400MB）。
-- 内存：python-pptx 解析 165MB deck 峰值约 265MB，LibreOffice 单页渲染峰值约 2GB → compose 给 3G / 2 CPU，渲染全局单并发。
+- 内存：切片后 LibreOffice 单页渲染峰值约 236MB（批量 8 页约 318MB），渲染仍全局单并发；不再需要为单页预留 2GB。
 - 字体：镜像只带 Noto CJK，`微软雅黑/等线/黑体 → Noto Sans CJK SC`、`宋体 → Noto Serif CJK SC` 由 `docker/fonts/99-cjk-alias.conf` 做替换。要与 PowerPoint 像素级一致需自行挂载已授权字体。
-- 只做单页；没有整本转换工具。渲染失败只影响该次调用，事务工具不受影响。
+- 不做整本转换（导出全部 64 页）；单次最多 32 页。渲染失败只影响该次调用，事务工具不受影响。
+- 切片会写进 `PPT_OUT_DIR/.slices/<deck key>/`，与 PNG 一起按 `PPT_CACHE_MAX_AGE_DAYS` 清理。
 
-冒烟（真实 deck，第 5/6/8 页，阈值 20s）：
+冒烟（真实 deck，第 5/6/8 页 + 批量 5-8 页，阈值 20s）：
 
 ```bash
 docker build --target test -t aisecretary:test .

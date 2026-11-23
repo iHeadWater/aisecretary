@@ -278,3 +278,149 @@ class TestMcpPptTools:
             "ppt_get_slide",
             "ppt_render_slide",
         } <= names
+
+
+class TestSlice:
+    def test_slice_keeps_only_requested_page(self, deck_dir: Path) -> None:
+        import zipfile
+
+        from server.app.ppt import slice as slice_builder
+
+        destination = deck_dir.parent / "slice.pptx"
+        slice_builder.build_slice(deck_dir, [2], destination)
+
+        with zipfile.ZipFile(destination) as archive:
+            names = set(archive.namelist())
+            presentation = archive.read("ppt/presentation.xml").decode("utf-8")
+            rels = archive.read("ppt/_rels/presentation.xml.rels").decode("utf-8")
+
+        assert "<p:sldId " in presentation
+        assert presentation.count("<p:sldId ") == 1
+        assert sum(1 for name in names if name.startswith("ppt/slides/slide")) == 1
+        # 结构件必须保留，否则 LO 拒绝加载
+        assert "ppt/slideMasters/slideMaster1.xml" in names
+        assert "[Content_Types].xml" in names
+        assert names & {n for n in names if n.startswith("ppt/slideLayouts/slideLayout")}
+        # 表页没有图片，切片里不应出现 media
+        assert not [n for n in names if n.startswith("ppt/media/")]
+        # 目标页自己的 rels 必须指向真实存在的 layout
+        with zipfile.ZipFile(destination) as archive:
+            slide_rels = archive.read("ppt/slides/_rels/slide2.xml.rels").decode("utf-8")
+        assert "slideLayout" in slide_rels
+        assert "slideLayout1.xml" in slide_rels or "slideLayouts/" in slide_rels
+
+    def test_slice_includes_page_media(self, deck_dir: Path) -> None:
+        import zipfile
+
+        from server.app.ppt import slice as slice_builder
+
+        destination = deck_dir.parent / "slice-media.pptx"
+        slice_builder.build_slice(deck_dir, [3], destination)
+        with zipfile.ZipFile(destination) as archive:
+            media = [n for n in archive.namelist() if n.startswith("ppt/media/")]
+        assert media, "带图片的页必须把图片带进切片"
+
+    def test_slice_multi_page(self, deck_dir: Path) -> None:
+        import zipfile
+
+        from server.app.ppt import slice as slice_builder
+        from server.app.ppt.paths import slide_count
+
+        destination = deck_dir.parent / "slice-multi.pptx"
+        slice_builder.build_slice(deck_dir, [1, 2, 3], destination)
+        assert slide_count(destination) == 3
+        with zipfile.ZipFile(destination) as archive:
+            names = set(archive.namelist())
+        # 多页切片要带上每一页的媒体
+        assert [n for n in names if n.startswith("ppt/media/")]
+
+    def test_slice_out_of_range(self, deck_dir: Path) -> None:
+        from server.app.ppt import slice as slice_builder
+
+        with pytest.raises(PptError) as exc:
+            slice_builder.build_slice(deck_dir, [9], deck_dir.parent / "bad.pptx")
+        assert exc.value.code == "slide_out_of_range"
+
+    def test_slide_number_field_is_materialised(self) -> None:
+        from server.app.ppt.slice import _fix_slide_number
+
+        xml = (
+            '<a:p><a:fld id="{X}" type="slidenum"><a:rPr lang="zh-CN" sz="1400" b="1"/>'
+            "<a:t>1</a:t></a:fld></a:p>"
+        )
+        fixed = _fix_slide_number(xml, 9)
+        assert "slidenum" not in fixed
+        assert '<a:t>9</a:t>' in fixed
+        assert "<a:rPr" in fixed
+
+
+class TestPageGrouping:
+    def test_single_page(self) -> None:
+        assert service._group_pages([5], 8) == [[5]]
+
+    def test_consecutive_pages_merge(self) -> None:
+        assert service._group_pages([5, 6, 7, 8], 8) == [[5, 6, 7, 8]]
+
+    def test_gap_splits_groups(self) -> None:
+        assert service._group_pages([5, 6, 9], 8) == [[5, 6], [9]]
+
+    def test_batch_cap(self) -> None:
+        groups = service._group_pages(list(range(1, 12)), 8)
+        assert groups == [list(range(1, 9)), [9, 10, 11]]
+
+
+class TestParsePages:
+    def test_single(self) -> None:
+        assert service.parse_pages("5") == [5]
+
+    def test_list(self) -> None:
+        assert service.parse_pages("5,6,9") == [5, 6, 9]
+
+    def test_range(self) -> None:
+        assert service.parse_pages("5-8") == [5, 6, 7, 8]
+
+    def test_mixed_and_spaces(self) -> None:
+        assert service.parse_pages(" 5-6 , 9 ") == [5, 6, 9]
+
+    def test_reversed_range(self) -> None:
+        assert service.parse_pages("8-6") == [6, 7, 8]
+
+    def test_invalid(self) -> None:
+        for spec in ("", "abc", "5-", "3,x"):
+            with pytest.raises(PptError) as exc:
+                service.parse_pages(spec)
+            assert exc.value.code == "invalid_page"
+
+    def test_too_many(self) -> None:
+        with pytest.raises(PptError) as exc:
+            service.parse_pages("1-40")
+        assert exc.value.code == "too_many_pages"
+
+
+@pytest.mark.skipif(
+    not render.tools_available(), reason="需要 soffice + pdftoppm（容器内才具备）"
+)
+class TestRenderBatch:
+    def test_render_two_pages(self, deck_dir: Path, clean_db: Path) -> None:
+        results = service.render_pages([1, 2], str(deck_dir), 150)
+        assert [item["page"] for item in results] == [1, 2]
+        for item in results:
+            assert Path(item["path"]).is_file()
+            assert item["cached"] is False
+        assert results[0]["path"] != results[1]["path"]
+
+    def test_second_call_is_cached(self, deck_dir: Path, clean_db: Path) -> None:
+        service.render_pages([1, 3], str(deck_dir), 150)
+        again = service.render_pages([1, 3], str(deck_dir), 150)
+        assert all(item["cached"] is True for item in again)
+
+    def test_duplicate_pages(self, deck_dir: Path, clean_db: Path) -> None:
+        results = service.render_pages([2, 2], str(deck_dir), 150)
+        assert [item["page"] for item in results] == [2, 2]
+        assert results[0]["path"] == results[1]["path"]
+
+    def test_slice_disabled_falls_back(self, deck_dir: Path, clean_db: Path,
+                                       monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(config.settings, "ppt_slice_enabled", False)
+        result = service.render_slide(2, str(deck_dir), 150)
+        assert Path(result["path"]).is_file()

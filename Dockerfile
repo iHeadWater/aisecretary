@@ -78,7 +78,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PPT_ROOTS=/opt/data/tmp/xdsh \
     PPT_OUT_DIR=/opt/data/tmp/pptpage \
     PPT_DPI=150 \
-    PPT_TIMEOUT=60
+    PPT_TIMEOUT=60 \
+    PPT_BATCH_MAX=8 \
+    PPT_SLICE_ENABLED=1
 
 EXPOSE 8000
 
