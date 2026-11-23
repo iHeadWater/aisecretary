@@ -223,10 +223,12 @@ Docker builds ship `.git` into the build context (~2 MB) and the builder stage i
 
 ### Release
 
+**版本号只走 patch**：即使新增了功能（如新的 MCP 工具），也发 `0.2.x`，不主动跳 minor。这是本仓库的既定约定，`0.3.0` 之类的 minor 号不使用。
+
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
-gh release create v0.1.1 --title v0.1.1 --notes "..."
+git tag v0.2.2
+git push origin v0.2.2
+gh release create v0.2.2 --title v0.2.2 --notes "..."
 ```
 
 No PyPI publishing: releases are git tags + GitHub Releases, and the deployable artifact is the Docker image built from that tag.
