@@ -20,6 +20,9 @@ Hermes connects to the aisecretary MCP server. All 7 transaction tools are auto-
 | `get_transaction` | Get one item by ID |
 | `update_transaction` | Change fields of an existing item |
 | `delete_transaction` | Permanently remove an item |
+| `link_transactions` | Link two items: part_of / blocks / related |
+| `unlink_transactions` | Remove a link |
+| `merge_transactions` | Merge a duplicate into the record that survives |
 | `batch_update_transactions` | Update multiple items in one call |
 | `summarize_transactions` | Count by status |
 
@@ -113,6 +116,55 @@ Action:
 3. Call `delete_transaction`.
 4. If the tool returns `transaction_not_found`, tell the user.
 
+
+### Link Transactions
+
+Trigger examples:
+
+- "把「资质材料」关联到「澜沧江投标」下面。"
+- "这两件事是一起的：海外访学签证 和 联系国外导师。"
+- "「交自查表」要等「财务给数」，把这个依赖记一下。"
+
+Action:
+
+1. Resolve both ids (call `list_transactions` if the user named them by title).
+2. Pick the relation:
+   - sub-task / belongs to → `part_of`
+   - A must finish first → `blocks`
+   - loosely connected → `related`
+3. Call `link_transactions(from_id, to_id, relation)`.
+4. Report the pair and the relation; if `created` is false, say it already existed.
+
+**Only link when the user explicitly asks.** Do not infer relationships from similar wording, shared project, or adjacent deadlines — a graph nobody asked for is worse than none.
+
+### Unlink Transactions
+
+Trigger examples:
+
+- "这两件事没关系了，取消关联。"
+- "把它从那个父任务里拿掉。"
+
+Action: call `unlink_transactions`. Omit `relation` only when the user wants every link between the pair gone.
+
+### Merge Duplicate Transactions
+
+Trigger examples:
+
+- "这两条是同一件事，合并一下。"
+- "把重复的那条并进主记录。"
+
+Action:
+
+1. Show both records and confirm which one should survive — **always ask before merging**, merging is not obviously reversible.
+2. Call `merge_transactions(source_id, target_id)` where `source_id` is the duplicate.
+3. Report what moved: the source's notes were appended to the target and its links were repointed.
+
+Merged records are kept as history (`merged_into` points at the survivor) and disappear from `list_transactions` / `summarize_transactions` by default.
+
+### Show Related Items
+
+When the user asks "这件事还牵扯到什么", call `get_transaction` (its `links` field lists related items with title and status) or `list_transactions(linked_to=<id>)`.
+
 ### Summarize Transactions
 
 Trigger examples:
@@ -126,6 +178,9 @@ Action:
 2. Report `total` and `by_status`.
 
 ## Response Rules
+
+- Transaction status questions must be answered from a tool call, never from memory: the
+  assistant-level memory layer may hold stale statuses, the database is the source of truth.
 
 - Never say "已记录" or "已更新" before tool success.
 - Keep Feishu replies concise.

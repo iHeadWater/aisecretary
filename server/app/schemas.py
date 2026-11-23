@@ -39,6 +39,7 @@ class Transaction(BaseModel):
     notes: str | None
     project: str | None
     folder_path: str | None
+    merged_into: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,3 +47,12 @@ class Transaction(BaseModel):
 class TransactionSummary(BaseModel):
     total: int
     by_status: dict[TransactionStatus, int]
+
+
+class TransactionLinkCreate(BaseModel):
+    to_id: str = Field(min_length=1)
+    relation: str = "related"
+
+
+class TransactionMergeCreate(BaseModel):
+    target_id: str = Field(min_length=1)

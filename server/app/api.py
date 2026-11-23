@@ -7,15 +7,21 @@ from server.app.database import db_session
 from server.app.schemas import (
     Transaction,
     TransactionCreate,
+    TransactionLinkCreate,
+    TransactionMergeCreate,
     TransactionSummary,
     TransactionUpdate,
 )
 from server.app.storage import (
     create_transaction,
     delete_transaction,
+    get_links,
     get_transaction,
+    link_transactions,
     list_transactions,
+    merge_transactions,
     summarize_transactions,
+    unlink_transactions,
     update_transaction,
 )
 
@@ -46,9 +52,19 @@ def list_all(
     owner: str | None = None,
     search: str | None = None,
     project: str | None = None,
+    linked_to: str | None = None,
+    include_merged: bool = False,
     conn: Connection = Depends(get_db),
 ):
-    return list_transactions(conn, status=status, owner=owner, search=search, project=project)
+    return list_transactions(
+        conn,
+        status=status,
+        owner=owner,
+        search=search,
+        project=project,
+        linked_to=linked_to,
+        include_merged=include_merged,
+    )
 
 
 @router.get("/transactions/summary", response_model=TransactionSummary)
@@ -119,3 +135,59 @@ def delete(transaction_id: str, conn: Connection = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_error("transaction_not_found", "Transaction not found"),
         )
+
+
+@router.get("/transactions/{transaction_id}/links")
+def links(transaction_id: str, conn: Connection = Depends(get_db)):
+    if get_transaction(conn, transaction_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_error("transaction_not_found", "Transaction not found"),
+        )
+    return get_links(conn, transaction_id)
+
+
+@router.post("/transactions/{transaction_id}/links", status_code=status.HTTP_201_CREATED)
+def create_link(
+    transaction_id: str,
+    payload: TransactionLinkCreate,
+    conn: Connection = Depends(get_db),
+):
+    try:
+        return link_transactions(conn, transaction_id, payload.to_id, payload.relation)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_error("invalid_link", str(exc)),
+        ) from exc
+
+
+@router.delete("/transactions/{transaction_id}/links/{to_id}")
+def remove_link(
+    transaction_id: str,
+    to_id: str,
+    relation: str | None = None,
+    conn: Connection = Depends(get_db),
+):
+    try:
+        return unlink_transactions(conn, transaction_id, to_id, relation)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_error("invalid_relation", str(exc)),
+        ) from exc
+
+
+@router.post("/transactions/{transaction_id}/merge")
+def merge(
+    transaction_id: str,
+    payload: TransactionMergeCreate,
+    conn: Connection = Depends(get_db),
+):
+    try:
+        return merge_transactions(conn, transaction_id, payload.target_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_error("invalid_merge", str(exc)),
+        ) from exc

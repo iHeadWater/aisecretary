@@ -10,9 +10,13 @@ from server.app.models import TransactionStatus
 from server.app.storage import (
     create_transaction,
     delete_transaction,
+    get_links,
     get_transaction,
+    link_transactions,
     list_transactions,
+    merge_transactions,
     summarize_transactions,
+    unlink_transactions,
     update_transaction,
 )
 from server.app.ppt import PptError
@@ -84,6 +88,8 @@ def tool_create_transaction(
     "Use status to filter by comma-separated status values (e.g. 'new,in_progress' for unfinished). "
     "Use owner for partial name match. Use search for keyword search in title and notes. "
     "Use project to filter by exact project name. "
+    "Use linked_to to get only transactions linked to a given id. "
+    "Merged records are hidden unless include_merged is true. "
     "Without filters, returns all transactions. Returns JSON array — empty array [] if none.",
 )
 def tool_list_transactions(
@@ -91,27 +97,41 @@ def tool_list_transactions(
     owner: str | None = None,
     search: str | None = None,
     project: str | None = None,
+    linked_to: str | None = None,
+    include_merged: bool = False,
 ) -> str:
     """List transactions with optional filters."""
     init_db()
     with get_connection() as conn:
-        results = list_transactions(conn, status=status, owner=owner, search=search, project=project)
+        results = list_transactions(
+            conn,
+            status=status,
+            owner=owner,
+            search=search,
+            project=project,
+            linked_to=linked_to,
+            include_merged=include_merged,
+        )
         results = [_serialize_result(r) for r in results]
         return json.dumps(results, ensure_ascii=False)
 
 
 @mcp.tool(
     name="get_transaction",
-    description="Get a single transaction by its UUID id. Returns the transaction JSON or error code 'transaction_not_found'.",
+    description="Get a single transaction by its UUID id, including its links to other "
+    "transactions (each link has id, title, status, relation, direction). "
+    "Returns error code 'transaction_not_found' if missing.",
 )
 def tool_get_transaction(transaction_id: str) -> str:
-    """Get a transaction by ID."""
+    """Get a transaction by ID, with its links."""
     init_db()
     with get_connection() as conn:
         result = get_transaction(conn, transaction_id)
         if result is None:
             return json.dumps({"error": "transaction_not_found"})
-        return json.dumps(_serialize_result(result), ensure_ascii=False)
+        payload = _serialize_result(result)
+        payload["links"] = get_links(conn, transaction_id)
+        return json.dumps(payload, ensure_ascii=False)
 
 
 @mcp.tool(
@@ -354,3 +374,73 @@ def tool_ppt_render_slide(
 ) -> str:
     """Render one slide to PNG."""
     return _ppt_json(ppt.render_slide, page, path, dpi)
+
+
+# ---------------------------------------------------------------------------
+# 事务关联与合并
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    name="link_transactions",
+    description="Create a link between two transactions. relation must be one of: "
+    "'part_of' (from_id is a sub-task of to_id), 'blocks' (from_id blocks to_id), "
+    "'related' (symmetric, loosely related). Only call when the user explicitly asks "
+    "to link items — do not guess relationships. Idempotent: returns created=false if it already exists.",
+)
+def tool_link_transactions(
+    from_id: str, to_id: str, relation: str = "related"
+) -> str:
+    """Link two transactions."""
+    init_db()
+    with get_connection() as conn:
+        try:
+            return json.dumps(
+                link_transactions(conn, from_id, to_id, relation), ensure_ascii=False
+            )
+        except ValueError as exc:
+            return json.dumps(
+                {"error": "invalid_link", "message": str(exc)}, ensure_ascii=False
+            )
+
+
+@mcp.tool(
+    name="unlink_transactions",
+    description="Remove a link between two transactions. Omit relation to remove every "
+    "link between the pair. Returns the number of links removed.",
+)
+def tool_unlink_transactions(
+    from_id: str, to_id: str, relation: str | None = None
+) -> str:
+    """Remove a link."""
+    init_db()
+    with get_connection() as conn:
+        try:
+            return json.dumps(
+                unlink_transactions(conn, from_id, to_id, relation), ensure_ascii=False
+            )
+        except ValueError as exc:
+            return json.dumps(
+                {"error": "invalid_relation", "message": str(exc)}, ensure_ascii=False
+            )
+
+
+@mcp.tool(
+    name="merge_transactions",
+    description="Merge a duplicate transaction into the one that should be kept. "
+    "source_id is the duplicate (kept as history, hidden from lists), target_id is the record "
+    "that survives. The source's notes are appended to the target and its links are moved over. "
+    "Always confirm with the user before merging.",
+)
+def tool_merge_transactions(source_id: str, target_id: str) -> str:
+    """Merge a duplicate transaction into another."""
+    init_db()
+    with get_connection() as conn:
+        try:
+            result = merge_transactions(conn, source_id, target_id)
+        except ValueError as exc:
+            return json.dumps(
+                {"error": "invalid_merge", "message": str(exc)}, ensure_ascii=False
+            )
+        result["target"] = _serialize_result(result["target"])
+        return json.dumps(result, ensure_ascii=False)

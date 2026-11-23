@@ -10,6 +10,8 @@ from server.app.config import settings
 EXPECTED_COLUMNS = {
     "project": "TEXT",
     "folder_path": "TEXT",
+    # 合并后指向主事务；非空表示这条已被并入别的记录
+    "merged_into": "TEXT",
 }
 
 
@@ -43,6 +45,23 @@ def init_db() -> None:
             """
         )
         _sync_columns(connection)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transaction_links (
+                from_id TEXT NOT NULL,
+                to_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (from_id, to_id, relation)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_links_to ON transaction_links(to_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_links_from ON transaction_links(from_id)"
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS ppt_state (

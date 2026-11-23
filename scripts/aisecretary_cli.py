@@ -15,6 +15,10 @@ Usage:
   aisecretary update <id> [--title "..."] [--status "..."] [--owner "..."] [--next-action "..."] [--follow-up "ISO-8601"] [--notes "..."] [--project "..."] [--folder-path "..."]
   aisecretary delete <id>
   aisecretary summary
+  aisecretary links <id>
+  aisecretary link <from_id> <to_id> [--relation part_of|blocks|related]
+  aisecretary unlink <from_id> <to_id> [--relation ...]
+  aisecretary merge <source_id> <target_id>
 
 Output is always JSON. Errors print {"error": "<code>"} to stdout and exit 1.
 """
@@ -30,6 +34,7 @@ import urllib.request
 BASE_URL = os.environ.get("AISECRETARY_URL", "http://localhost:8000/api")
 
 VALID_STATUSES = {"new", "in_progress", "waiting_feedback", "done"}
+VALID_RELATIONS = {"part_of", "blocks", "related"}
 
 
 def unquote(s):
@@ -102,6 +107,10 @@ def cmd_list(args):
         params["search"] = args.search
     if args.project:
         params["project"] = args.project
+    if getattr(args, "linked_to", None):
+        params["linked_to"] = args.linked_to
+    if getattr(args, "include_merged", False):
+        params["include_merged"] = "true"
     qs = urllib.parse.urlencode(params) if params else ""
     path = f"/transactions?{qs}" if qs else "/transactions"
     result = _request("GET", path)
@@ -144,6 +153,39 @@ def cmd_delete(args):
     print(json.dumps(result, ensure_ascii=False))
 
 
+def cmd_links(args):
+    result = _request("GET", f"/transactions/{args.id}/links")
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def cmd_link(args):
+    if args.relation not in VALID_RELATIONS:
+        err("invalid_relation", f"relation must be one of: {', '.join(sorted(VALID_RELATIONS))}")
+    result = _request(
+        "POST",
+        f"/transactions/{args.from_id}/links",
+        {"to_id": args.to_id, "relation": args.relation},
+    )
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def cmd_unlink(args):
+    if args.relation is not None and args.relation not in VALID_RELATIONS:
+        err("invalid_relation", f"relation must be one of: {', '.join(sorted(VALID_RELATIONS))}")
+    path = f"/transactions/{args.from_id}/links/{args.to_id}"
+    if args.relation:
+        path += "?" + urllib.parse.urlencode({"relation": args.relation})
+    result = _request("DELETE", path)
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def cmd_merge(args):
+    result = _request(
+        "POST", f"/transactions/{args.source_id}/merge", {"target_id": args.target_id}
+    )
+    print(json.dumps(result, ensure_ascii=False))
+
+
 def cmd_summary(_):
     result = _request("GET", "/transactions/summary")
     print(json.dumps(result, ensure_ascii=False))
@@ -169,6 +211,8 @@ def main():
     p.add_argument("--owner", type=unquote)
     p.add_argument("--search", type=unquote)
     p.add_argument("--project", type=unquote)
+    p.add_argument("--linked-to", dest="linked_to", type=unquote)
+    p.add_argument("--include-merged", dest="include_merged", action="store_true")
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("get")
@@ -193,6 +237,27 @@ def main():
 
     p = sub.add_parser("summary")
     p.set_defaults(func=cmd_summary)
+
+    p = sub.add_parser("links")
+    p.add_argument("id", type=unquote)
+    p.set_defaults(func=cmd_links)
+
+    p = sub.add_parser("link")
+    p.add_argument("from_id", type=unquote)
+    p.add_argument("to_id", type=unquote)
+    p.add_argument("--relation", default="related", type=unquote)
+    p.set_defaults(func=cmd_link)
+
+    p = sub.add_parser("unlink")
+    p.add_argument("from_id", type=unquote)
+    p.add_argument("to_id", type=unquote)
+    p.add_argument("--relation", type=unquote)
+    p.set_defaults(func=cmd_unlink)
+
+    p = sub.add_parser("merge")
+    p.add_argument("source_id", type=unquote)
+    p.add_argument("target_id", type=unquote)
+    p.set_defaults(func=cmd_merge)
 
     args = parser.parse_args()
     if not args.cmd:
